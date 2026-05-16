@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Next.js
+.next/
+out/
+build/
+
+# Environment — NEVER commit
+.env.local
+.env*.local
+
+# Vercel
+.vercel
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Agent workspace
+.agent/index.json
+.agent/scope.json
+.skill-tmp/
+
+# OS
+.DS_Store
+Thumbs.db

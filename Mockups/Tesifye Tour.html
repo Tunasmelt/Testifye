@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Tesifye — Product Tour</title>
+<link rel="stylesheet" href="styles.css">
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: #07070A; }
+  #page { width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; box-sizing: border-box; background: radial-gradient(1200px 800px at 50% 0%, rgba(139,92,246,0.10), transparent 60%), #050507; }
+  #stage { width: 100%; max-width: 1480px; height: 100%; max-height: 920px; display: flex; }
+  .browser-shell { width: 100%; height: 100%; display: flex; flex-direction: column; border-radius: 14px; overflow: hidden; box-shadow: 0 40px 100px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04); }
+  .browser-bar { height: 38px; background: #1E1E22; display: flex; align-items: center; padding: 0 14px; gap: 14px; flex-shrink: 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+  .browser-lights { display: flex; gap: 8px; }
+  .browser-lights span { width: 12px; height: 12px; border-radius: 50%; }
+  .browser-url { flex: 1; height: 24px; background: #2A2A2F; border-radius: 6px; display: flex; align-items: center; justify-content: center; gap: 8px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #aaa; max-width: 480px; margin: 0 auto; }
+  .browser-url svg { width: 11px; height: 11px; color: #6B7280; }
+  .browser-url b { color: #F2F2F5; font-weight: 400; }
+  .browser-body { flex: 1; min-height: 0; display: flex; overflow: hidden; }
+</style>
+</head>
+<body>
+<div id="page">
+  <div id="stage">
+    <div class="browser-shell">
+      <div class="browser-bar">
+        <div class="browser-lights">
+          <span style="background:#FF5F57"></span>
+          <span style="background:#FEBC2E"></span>
+          <span style="background:#28C840"></span>
+        </div>
+        <div class="browser-url">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          tesifye.app/<b>projects/pebble-travel</b>
+        </div>
+        <div style="font-size:11px; color:#666; font-family:'JetBrains Mono', monospace;">⌘ ⇧ R</div>
+      </div>
+      <div class="browser-body" id="root"></div>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel" src="icons.jsx"></script>
+<script type="text/babel" src="mock-data.jsx"></script>
+<script type="text/babel" src="phone-screens.jsx"></script>
+<script type="text/babel" src="shell.jsx"></script>
+<script type="text/babel" src="features-a.jsx"></script>
+<script type="text/babel" src="features-b.jsx"></script>
+<script type="text/babel" src="app.jsx"></script>
+
+</body>
+</html>
