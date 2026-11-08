@@ -7,22 +7,32 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@ai-sdk/google": "latest",
     "@ai-sdk/groq": "latest",
+    "@faker-js/faker": "^10.4.0",
     "@supabase/ssr": "latest",
     "@supabase/supabase-js": "latest",
     "ai": "latest",
     "browser-image-compression": "latest",
+    "extract-colors": "^4.2.1",
     "framer-motion": "latest",
     "idb-keyval": "latest",
+    "json2csv": "^6.0.0-alpha.2",
     "lucide-react": "latest",
+    "mammoth": "^1.12.0",
     "next": "^16.2.6",
+    "pdfjs-dist": "^5.7.284",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-markdown": "latest",
+    "recharts": "^3.8.1",
+    "tesseract.js": "^7.0.0",
+    "wcag-contrast-utils": "^1.0.2",
     "zod": "latest",
     "zustand": "latest"
   },
@@ -32,6 +42,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "15.3.2",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^3.2.7"
   }
 }
