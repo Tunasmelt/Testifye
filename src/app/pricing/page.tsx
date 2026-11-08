@@ -11,8 +11,6 @@ import { MarketingNav } from '@/components/marketing/MarketingNav';
 import { MarketingFooter } from '@/components/marketing/MarketingFooter';
 import { useScrollReveal } from '@/components/marketing/useScrollReveal';
 
-export const metadata = undefined; // 'use client' — set via head in layout
-
 function CheckIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" style={{ width: 15, height: 15, flexShrink: 0, marginTop: 2 }}>

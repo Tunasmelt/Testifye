@@ -40,11 +40,15 @@ export type ChainKey = keyof typeof FALLBACK_CHAINS;
 
 // ── Provider Factories ────────────────────────────────────────────────────────
 export function getGroqProvider() {
-  return createGroq({ apiKey: process.env.GROQ_API_KEY! });
+  const key = process.env.GROQ_API_KEY;
+  if (!key) throw new Error('GROQ_API_KEY is not set. Add it to .env.local.');
+  return createGroq({ apiKey: key });
 }
 
 export function getGoogleProvider() {
-  return createGoogleGenerativeAI({ apiKey: process.env.GOOGLE_AI_API_KEY! });
+  const key = process.env.GOOGLE_AI_API_KEY;
+  if (!key) throw new Error('GOOGLE_AI_API_KEY is not set. Add it to .env.local.');
+  return createGoogleGenerativeAI({ apiKey: key });
 }
 
 /** Returns a Vercel AI SDK model instance for a given model key */

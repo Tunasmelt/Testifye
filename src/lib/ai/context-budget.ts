@@ -53,8 +53,10 @@ export async function buildCompressedHistory(
     });
     return text;
   } catch {
-    // If compression fails, return first 2K of raw
-    return raw.slice(0, TOKEN_BUDGET.historical_summary * 4);
+    // If compression fails, return first ~2K chars.
+    // Use Array.from to avoid splitting multi-byte Unicode characters mid-codepoint.
+    const charLimit = TOKEN_BUDGET.historical_summary * 4;
+    return Array.from(raw).slice(0, charLimit).join('');
   }
 }
 
@@ -81,7 +83,7 @@ export async function buildFullContext(opts: {
 
   // Screen maps — truncate to budget
   let screenMapsBlock = screenMaps
-    .map((m) => `Screen: "${m.screen_label}"\n${JSON.stringify(m, null, 2)}`)
+    .map((m) => JSON.stringify(m, null, 2))
     .join('\n\n---\n\n');
 
   if (estimateTokens(screenMapsBlock) > TOKEN_BUDGET.screen_maps) {

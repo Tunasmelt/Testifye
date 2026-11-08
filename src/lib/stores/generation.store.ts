@@ -30,14 +30,15 @@ interface GenerationState {
   meta:      GenerationMeta | null;
   error:     string | null;
   buffer:    string;
-  resumeFrom: number | null;
+  resumeFrom:      number | null;
+  coverageSummary: string;
 
   // Actions
   start:           ()                         => void;
   setMeta:         (meta: GenerationMeta)     => void;
   appendBuffer:    (text: string)             => void;
   setStreamingCases: (cases: TestCase[])      => void;
-  setFinalCases:   (cases: TestCase[])        => void;
+  setFinalCases:   (cases: TestCase[], coverageSummary?: string) => void;
   setPartial:      (fromIndex: number)        => void;
   setError:        (msg: string)              => void;
   startJudge:      ()                         => void;
@@ -46,18 +47,19 @@ interface GenerationState {
 }
 
 export const useGenerationStore = create<GenerationState>((set) => ({
-  status:     'idle',
-  cases:      [],
-  streaming:  [],
-  partial:    false,
-  meta:       null,
-  error:      null,
-  buffer:     '',
-  resumeFrom: null,
+  status:          'idle',
+  cases:           [],
+  streaming:       [],
+  partial:         false,
+  meta:            null,
+  error:           null,
+  buffer:          '',
+  resumeFrom:      null,
+  coverageSummary: '',
 
   start: () => set({
     status: 'starting', cases: [], streaming: [],
-    partial: false, error: null, buffer: '', meta: null,
+    partial: false, error: null, buffer: '', meta: null, coverageSummary: '',
   }),
 
   setMeta: (meta) => set({ meta, status: 'streaming' }),
@@ -66,7 +68,7 @@ export const useGenerationStore = create<GenerationState>((set) => ({
 
   setStreamingCases: (streaming) => set({ streaming }),
 
-  setFinalCases: (cases) => set({ cases, streaming: [] }),
+  setFinalCases: (cases, coverageSummary = '') => set({ cases, streaming: [], coverageSummary }),
 
   setPartial: (fromIndex) => set((s) => ({
     status: 'partial',
@@ -80,10 +82,10 @@ export const useGenerationStore = create<GenerationState>((set) => ({
 
   startJudge: () => set({ status: 'judging' }),
 
-  complete: () => set({ status: 'complete', partial: false, resumeFrom: null, buffer: '' }),
+  complete: () => set({ status: 'complete', partial: false, resumeFrom: null, buffer: '', error: null }),
 
   reset: () => set({
     status: 'idle', cases: [], streaming: [], partial: false,
-    meta: null, error: null, buffer: '', resumeFrom: null,
+    meta: null, error: null, buffer: '', resumeFrom: null, coverageSummary: '',
   }),
 }));

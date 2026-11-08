@@ -1,10 +1,12 @@
 import { generateObject } from 'ai';
-import type { ZodSchema } from 'zod';
+import type { ZodType } from 'zod';
 import { getModel, type ModelKey } from './providers';
 
 interface GenerateOptions<T> {
-  schema: ZodSchema<T>;
-  prompt: string;
+  schema: ZodType<T, any, any>;
+  prompt?: string;
+  /** Multimodal messages — used instead of `prompt` when image content is needed */
+  messages?: Parameters<typeof generateObject>[0]['messages'];
   system?: string;
   temperature?: number;
   /** When true, allow falling back to Google AI if GROQ rate-limits */
@@ -26,19 +28,21 @@ export async function generateWithFallback<T>(
   modelKey: ModelKey,
   options: GenerateOptions<T>,
 ): Promise<GenerateResult<T>> {
-  const { schema, prompt, system, temperature = 0.3, allowGoogleFallback = false } = options;
+  const { schema, prompt, messages, system, temperature = 0.3, allowGoogleFallback = false } = options;
+
+  const buildOpts = (model: ReturnType<typeof getModel>) => ({
+    model,
+    schema: schema as any,
+    ...(messages ? { messages } : { prompt: prompt ?? '' }),
+    system,
+    temperature,
+  });
 
   // Try GROQ first
   try {
     const model = getModel(modelKey, false);
-    const { object } = await generateObject({
-      model,
-      schema,
-      prompt,
-      system,
-      temperature,
-    });
-    return { result: object, provider: 'groq', model: model.modelId, modelKey };
+    const { object } = await generateObject(buildOpts(model) as any);
+    return { result: object as T, provider: 'groq', model: model.modelId, modelKey };
   } catch (err: unknown) {
     const isRateLimit = err instanceof Error && (
       err.message.includes('429') ||
@@ -53,12 +57,6 @@ export async function generateWithFallback<T>(
   // Fallback: Google AI
   console.warn(`[AI] GROQ rate-limited for ${modelKey}, falling back to Google AI`);
   const googleModel = getModel(modelKey, true);
-  const { object } = await generateObject({
-    model: googleModel,
-    schema,
-    prompt,
-    system,
-    temperature,
-  });
-  return { result: object, provider: 'google', model: googleModel.modelId, modelKey };
+  const { object } = await generateObject(buildOpts(googleModel) as any);
+  return { result: object as T, provider: 'google', model: googleModel.modelId, modelKey };
 }

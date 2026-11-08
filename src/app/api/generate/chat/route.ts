@@ -16,7 +16,13 @@ import type { Project } from '@/lib/supabase/types';
 export const runtime   = 'nodejs';
 export const maxDuration = 60;
 
-const SIDEKICK_SYSTEM = (project: Project, screenCount: number, tcCount: number): string => `
+const SIDEKICK_SYSTEM = (
+  project: Project,
+  screenCount: number,
+  tcCount: number,
+  uxScore: number | null,
+  coverageSummary: string,
+): string => `
 You are Tesifye Sidekick, a project-scoped QA assistant.
 
 Project: "${project.name}"
@@ -24,7 +30,7 @@ Description: ${project.description}
 App type: ${project.app_type ?? 'unknown'} · Platform: ${project.platform ?? 'unknown'}
 Tester role: ${project.user_role ?? 'manual_tester'}
 Analyzed screens: ${screenCount}
-Generated test cases: ${tcCount}
+Generated test cases: ${tcCount}${coverageSummary ? `\nCoverage summary: ${coverageSummary}` : ''}${uxScore !== null ? `\nLatest UX audit score: ${uxScore}/100` : ''}
 
 Your job: answer QA-focused questions about this project. Be concise (2–4 short paragraphs).
 Reply in markdown. Do NOT be generic — reference the actual project context above.
@@ -54,10 +60,15 @@ export async function POST(req: NextRequest) {
   try { body = await req.json(); }
   catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
 
-  const { projectId, messages = [] } = body;
-  if (!projectId || messages.length === 0) {
+  const { projectId, messages: rawMessages = [] } = body;
+  if (!projectId || rawMessages.length === 0) {
     return NextResponse.json({ error: 'projectId and messages required' }, { status: 400 });
   }
+  // Cap at last 50 messages to prevent context overflow
+  const MAX_CHAT_MESSAGES = 50;
+  const messages = rawMessages.length > MAX_CHAT_MESSAGES
+    ? rawMessages.slice(-MAX_CHAT_MESSAGES)
+    : rawMessages;
 
   // ── Verify project ────────────────────────────────────────────────────────
   const supabase = createAdminClient();
@@ -74,12 +85,17 @@ export async function POST(req: NextRequest) {
     getProjectArtifacts(projectId),
   ]);
 
-  const tcCount = artifacts.find((a) => a.artifact_type === 'test_suite')
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ?.content ? (artifacts.find((a) => a.artifact_type === 'test_suite')?.content as any)?.total_count ?? 0 : 0;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const testSuiteContent = artifacts.find((a) => a.artifact_type === 'test_suite')?.content as any;
+  const tcCount        = testSuiteContent?.total_count ?? 0;
+  const coverageSummary: string = testSuiteContent?.coverage_summary ?? '';
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const uxReviewContent = artifacts.find((a) => a.artifact_type === 'ux_review')?.content as any;
+  const uxScore: number | null = typeof uxReviewContent?.overall_score === 'number' ? uxReviewContent.overall_score : null;
 
   const model  = getModel('reasoning_large', false);
-  const system = SIDEKICK_SYSTEM(project as Project, screenMaps.length, tcCount);
+  const system = SIDEKICK_SYSTEM(project as Project, screenMaps.length, tcCount, uxScore, coverageSummary);
 
   // ── Stream response ───────────────────────────────────────────────────────
   const result = streamText({

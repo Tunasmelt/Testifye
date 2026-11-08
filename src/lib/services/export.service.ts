@@ -48,18 +48,20 @@ function toMarkdown(suite: TestSuiteOutput): string {
 // ── CSV ───────────────────────────────────────────────────────────────────────
 
 function toCsv(suite: TestSuiteOutput): string {
+  const esc = (v: string | number | boolean) =>
+    `"${String(v).replace(/"/g, '""')}"`;
   const headers = ['TC ID', 'Title', 'Category', 'Priority', 'Screen', 'Steps', 'Preconditions', 'Verified'];
   const rows = suite.test_cases.map((tc) => [
-    tc.tc_id,
-    `"${tc.title.replace(/"/g, '""')}"`,
-    tc.category,
-    tc.priority,
-    tc.screen_label,
-    tc.step_count.toString(),
-    `"${(tc.preconditions ?? '').replace(/"/g, '""')}"`,
-    tc.is_verified ? 'yes' : 'no',
+    esc(tc.tc_id),
+    esc(tc.title),
+    esc(tc.category),
+    esc(tc.priority),
+    esc(tc.screen_label ?? ''),
+    esc(tc.step_count),
+    esc(tc.preconditions ?? ''),
+    esc(tc.is_verified ? 'yes' : 'no'),
   ]);
-  return [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+  return [headers.map(esc).join(','), ...rows.map((r) => r.join(','))].join('\n');
 }
 
 // ── JSON ──────────────────────────────────────────────────────────────────────
@@ -76,13 +78,19 @@ function toGherkin(suite: TestSuiteOutput): string {
   for (const tc of suite.test_cases) {
     lines.push(`  @${tc.priority} @${tc.category.toLowerCase().replace(/\s+/g, '-')}`);
     lines.push(`  Scenario: ${tc.title}`);
+    // Given
     if (tc.preconditions) {
       lines.push(`    Given ${tc.preconditions}`);
+    } else {
+      lines.push(`    Given the application is in a valid state`);
     }
-    for (const step of tc.steps) {
-      const keyword = step.step_number === 1 ? 'When' : 'And';
-      lines.push(`    ${keyword} ${step.action}`);
-      lines.push(`    Then ${step.expected_result}`);
+    // When — all actions first
+    for (const [idx, step] of tc.steps.entries()) {
+      lines.push(`    ${idx === 0 ? 'When' : 'And'} ${step.action}`);
+    }
+    // Then — all expected results after
+    for (const [idx, step] of tc.steps.entries()) {
+      lines.push(`    ${idx === 0 ? 'Then' : 'And'} ${step.expected_result}`);
     }
     lines.push('');
   }
@@ -163,14 +171,25 @@ export function exportSuite(suite: TestSuiteOutput, format: ExportFormat, projec
   const content   = CONVERTERS[format](suite);
   const mime      = MIME[format];
   const ext       = EXTENSION[format];
-  const fileName  = `${projectName.toLowerCase().replace(/\s+/g, '-')}-tests.${ext}`;
+  // Normalise to ASCII: decompose unicode, strip combining marks, replace unsafe chars
+  const safeName = projectName
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/gu, '') // strip combining diacritics
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')        // replace non-alphanumeric runs with hyphen
+    .replace(/^-+|-+$/g, '')            // trim leading/trailing hyphens
+    || 'project';
+  const fileName  = `${safeName}-tests.${ext}`;
 
   const blob = new Blob([content], { type: mime });
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href     = url;
   a.download = fileName;
+  // Must be in DOM before .click() for Firefox compatibility
+  document.body.appendChild(a);
   a.click();
+  document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
 

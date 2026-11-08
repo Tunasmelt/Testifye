@@ -1,6 +1,7 @@
 /**
  * GET /api/assets/signed-url?path=...
  * Returns a short-lived (60 s) signed URL for a private storage object.
+ * Verifies asset ownership before issuing URL to prevent IDOR.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
@@ -32,6 +33,24 @@ export async function GET(req: NextRequest) {
   const storagePath = req.nextUrl.searchParams.get('path');
   if (!storagePath) {
     return NextResponse.json({ error: 'Missing path param' }, { status: 400 });
+  }
+
+  // Ownership check: storage paths are structured as `{userId}/{projectId}/{hash}.webp`
+  // The first segment must be the requesting user's ID.
+  const pathUserId = storagePath.split('/')[0];
+  if (pathUserId !== user.id) {
+    // Secondary check: look up by storage_path in DB to handle edge cases
+    const supabase = createAdminClient();
+    const { data: asset } = await supabase
+      .from('project_assets')
+      .select('id')
+      .eq('storage_path', storagePath)
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (!asset) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
   }
 
   const supabase = createAdminClient();

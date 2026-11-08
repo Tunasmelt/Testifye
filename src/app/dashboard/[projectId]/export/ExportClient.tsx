@@ -31,9 +31,8 @@ const INCLUDE_ITEMS = [
 
 interface Props { projectId: string }
 
-export function ExportClient({ projectId }: Props) {
-  void projectId;
-  const { cases, status } = useGenerationStore();
+export function ExportClient({ projectId: _projectId }: Props) {
+  const { cases, status, coverageSummary } = useGenerationStore();
   const [included, setIncluded] = useState<Set<string>>(
     new Set(INCLUDE_ITEMS.filter((i) => i.defaultOn).map((i) => i.key))
   );
@@ -41,6 +40,20 @@ export function ExportClient({ projectId }: Props) {
 
   const hasCases  = cases.length > 0;
   const mockCount = { test_cases: cases.length, ux_issues: 0, bug_reports: 0, prd_findings: 0, persona_friction: 0, test_data: 0 };
+
+  function buildSuite() {
+    return {
+      test_cases:         cases,
+      coverage_summary:   coverageSummary ?? '',
+      total_count:        cases.length,
+      priority_breakdown: {
+        critical: cases.filter((c) => c.priority === 'critical').length,
+        high:     cases.filter((c) => c.priority === 'high').length,
+        medium:   cases.filter((c) => c.priority === 'medium').length,
+        low:      cases.filter((c) => c.priority === 'low').length,
+      },
+    };
+  }
 
   function toggleInclude(key: string) {
     setIncluded((prev) => {
@@ -52,12 +65,12 @@ export function ExportClient({ projectId }: Props) {
 
   function handleDownload(fmt: ExportFormat) {
     if (!hasCases) return;
-    exportSuite({ test_cases: cases, coverage_summary: '', total_count: cases.length, priority_breakdown: { critical: 0, high: 0, medium: 0, low: 0 } }, fmt, 'project');
+    exportSuite(buildSuite(), fmt, 'project');
   }
 
   async function handleCopy(fmt: ExportFormat) {
     if (!hasCases) return;
-    const text = formatSuite({ test_cases: cases, coverage_summary: '', total_count: cases.length, priority_breakdown: { critical: 0, high: 0, medium: 0, low: 0 } }, fmt);
+    const text = formatSuite(buildSuite(), fmt);
     await navigator.clipboard.writeText(text);
     setCopied(fmt);
     setTimeout(() => setCopied(null), 2000);

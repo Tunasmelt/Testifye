@@ -15,10 +15,12 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import {
   streamTestCases,
+  runJudge,
   getProjectScreenMaps,
   getProjectArtifacts,
 } from '@/lib/ai/weaver.service';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { PROMPT_VERSION } from '@/lib/ai/prompt-version';
 import type { Project } from '@/lib/supabase/types';
 
 export const runtime = 'nodejs';
@@ -44,11 +46,11 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   // ── Parse body ────────────────────────────────────────────────────────────
-  let body: { projectId?: string; focusAreas?: string[]; resumeFrom?: number };
+  let body: { projectId?: string; focusAreas?: string[]; resumeFrom?: number; role?: string };
   try { body = await req.json(); }
   catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
 
-  const { projectId, focusAreas, resumeFrom } = body;
+  const { projectId, focusAreas, resumeFrom, role } = body;
   if (!projectId) return NextResponse.json({ error: 'projectId required' }, { status: 400 });
 
   // ── Project ownership ─────────────────────────────────────────────────────
@@ -66,22 +68,19 @@ export async function POST(req: NextRequest) {
     getProjectArtifacts(projectId),
   ]);
 
-  if (screenMaps.length === 0) {
-    return NextResponse.json(
-      { error: 'No analyzed screens. Upload and analyze screenshots first.' },
-      { status: 422 },
-    );
-  }
+  // No screenshots: allowed per spec — generate from description only with a warning note.
+  // The generator prompt already handles absent ScreenElementMaps gracefully.
 
   // ── Stream ────────────────────────────────────────────────────────────────
   const { stream, provider, model, estimatedTokens } = await streamTestCases({
-    project: project as Project,
+    project: { ...(project as Project), ...(role ? { user_role: role } : {}) } as Project,
     focusAreas,
     artifacts,
-    screenMaps,
+    screenMaps,   // may be [] — generator handles this
     userId: user.id,
-    allowGoogleFallback: true,
+    allowGoogleFallback: (project as Project).extended_providers_enabled ?? false,
     resumeFrom,
+    noScreensWarning: screenMaps.length === 0,
   });
 
   const encoder = new TextEncoder();
@@ -92,13 +91,59 @@ export async function POST(req: NextRequest) {
     async start(controller) {
       controller.enqueue(send({ type: 'meta', provider, model, estimatedTokens }));
 
+      const startMs = Date.now();
       try {
         // partialObjectStream yields DeepPartial<TestSuiteOutput> on every token
         for await (const partial of stream.partialObjectStream) {
           controller.enqueue(send({ type: 'partial', object: partial }));
         }
-        // Final complete object
-        const final = await stream.object;
+
+        // Final complete object from generator
+        const generated = await stream.object as import('@/lib/schemas/test-case').TestSuiteOutput;
+
+        // ── Judge phase ─────────────────────────────────────────────────────
+        let final = generated;
+        let judged = false;
+        try {
+          // Respect the project's privacy mode: Google fallback only if the user opted in.
+          final = await runJudge(
+            generated,
+            screenMaps,
+            (project as Project).extended_providers_enabled ?? false,
+          );
+          judged = true;
+        } catch (judgeErr) {
+          // Judge failure is non-fatal — surface raw generation (saved as unverified)
+          console.warn('[Judge] failed, using raw output:', judgeErr);
+        }
+
+        // ── Persist to generated_artifacts ──────────────────────────────────
+        try {
+          // Flip previous test_suite artifacts to non-latest before inserting
+          await supabase.from('generated_artifacts')
+            .update({ is_latest: false })
+            .eq('project_id', projectId)
+            .eq('artifact_type', 'test_suite');
+
+          await supabase.from('generated_artifacts').insert({
+            project_id:          projectId,
+            user_id:             user.id,
+            artifact_type:       'test_suite',
+            content:             final,
+            input_snapshot:      { focus_areas: focusAreas ?? [], resume_from: resumeFrom ?? null },
+            model_used:          model,
+            provider,
+            generation_time_ms:  Date.now() - startMs,
+            prompt_version:      PROMPT_VERSION,
+            is_verified:         judged,
+            is_latest:           true,
+            status:              'complete',
+          });
+        } catch (dbErr) {
+          // DB failure is non-fatal — client still gets results
+          console.error('[DB] artifact persist failed:', dbErr);
+        }
+
         controller.enqueue(send({ type: 'done', object: final }));
       } catch (err) {
         controller.enqueue(send({

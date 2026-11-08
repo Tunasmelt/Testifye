@@ -8,7 +8,9 @@ import { createClient } from '@/lib/supabase/client';
 function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
-  const redirect = params.get('redirect') ?? '/dashboard';
+  // Sanitise redirect: only allow relative paths (prevents open-redirect)
+  const rawRedirect = params.get('redirect') ?? '';
+  const redirect = rawRedirect.startsWith('/') && !rawRedirect.startsWith('//') ? rawRedirect : '/dashboard';
 
   const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
@@ -21,7 +23,7 @@ function LoginForm() {
     setLoading(true);
     try {
       const supabase = createClient();
-      const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
+      const { error: authError } = await supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
       if (authError) throw authError;
       router.push(redirect);
       router.refresh();

@@ -31,8 +31,13 @@ export function ProjectListClient({ initialProjects }: Props) {
 
   async function handleArchive(id: string) {
     if (!confirm('Archive this project? You can restore it later.')) return;
-    await archiveProject(id);
-    setProjects((prev) => prev.filter((p) => p.id !== id));
+    try {
+      await archiveProject(id);
+      setProjects((prev) => prev.filter((p) => p.id !== id));
+    } catch (err) {
+      console.error('[archive]', err);
+      alert('Failed to archive project. Please try again.');
+    }
   }
 
   return (

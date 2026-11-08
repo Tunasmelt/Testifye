@@ -71,7 +71,7 @@ export interface ProjectAsset {
     label?: string;
     order?: number;
     dimensions?: { width: number; height: number };
-    vision_map_status?: 'pending' | 'ready' | 'stale';
+    vision_map_status?: 'pending' | 'ready' | 'stale' | 'failed';
   };
   is_dirty: boolean;
   is_verified: boolean;

@@ -231,28 +231,29 @@ CREATE INDEX IF NOT EXISTS idx_chat_project ON chat_sessions(project_id);
 -- STORAGE BUCKET
 -- Run separately via Supabase Dashboard → Storage OR via this SQL
 -- ============================================================
--- NOTE: Bucket creation via SQL requires pg_net or the Supabase management API.
--- Create "testifye-assets" as a PRIVATE bucket in Dashboard → Storage → New bucket.
--- Then add these policies:
+-- ⚠ REQUIRED — DO NOT SKIP: Without these policies the bucket has NO access controls
+--   and all authenticated users can read each other's uploaded files (data exposure).
+-- Create "project-assets" as a PRIVATE bucket in Dashboard → Storage → New bucket.
+-- Then uncomment and run the policies below (or apply them in the Dashboard):
 
 -- INSERT policy: authenticated users can upload to their own prefix
 -- (path starts with their user_id/)
 -- CREATE POLICY "Users upload own assets" ON storage.objects
 --   FOR INSERT WITH CHECK (
---     bucket_id = 'testifye-assets'
+--     bucket_id = 'project-assets'
 --     AND auth.uid()::text = split_part(name, '/', 1)
 --   );
 
 -- SELECT policy: authenticated users can read their own files
 -- CREATE POLICY "Users read own assets" ON storage.objects
 --   FOR SELECT USING (
---     bucket_id = 'testifye-assets'
+--     bucket_id = 'project-assets'
 --     AND auth.uid()::text = split_part(name, '/', 1)
 --   );
 
 -- DELETE policy: users can delete their own files
 -- CREATE POLICY "Users delete own assets" ON storage.objects
 --   FOR DELETE USING (
---     bucket_id = 'testifye-assets'
+--     bucket_id = 'project-assets'
 --     AND auth.uid()::text = split_part(name, '/', 1)
 --   );

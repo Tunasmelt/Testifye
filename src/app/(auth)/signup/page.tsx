@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
@@ -13,6 +13,11 @@ export default function SignupPage() {
   const [loading, setLoading]         = useState(false);
   const [error, setError]             = useState<string | null>(null);
   const [success, setSuccess]         = useState(false);
+  const [needsConfirmation, setNeedsConfirmation] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clean up any pending redirect timer on unmount
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -24,15 +29,20 @@ export default function SignupPage() {
     setLoading(true);
     try {
       const supabase = createClient();
-      const { error: authError } = await supabase.auth.signUp({
-        email,
+      const { data: signUpData, error: authError } = await supabase.auth.signUp({
+        email: email.trim().toLowerCase(),
         password,
         options: { data: { display_name: displayName } },
       });
       if (authError) throw authError;
       setSuccess(true);
-      // If email confirmation is disabled in Supabase, redirect immediately
-      setTimeout(() => router.push('/dashboard'), 1000);
+      if (signUpData.session) {
+        // Email confirmation disabled — session is live, redirect immediately
+        timerRef.current = setTimeout(() => router.push('/dashboard'), 1000);
+      } else {
+        // Email confirmation required — show message, do NOT redirect
+        setNeedsConfirmation(true);
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Sign up failed. Please try again.');
     } finally {
@@ -58,7 +68,11 @@ export default function SignupPage() {
           <div style={{ textAlign: 'center', padding: '12px 0' }}>
             <div style={{ fontSize: 28, marginBottom: 12 }}>✅</div>
             <div style={{ fontWeight: 600, marginBottom: 6 }}>Account created!</div>
-            <div style={{ fontSize: 13, color: 'var(--text-1)' }}>Redirecting to your dashboard…</div>
+            <div style={{ fontSize: 13, color: 'var(--text-1)' }}>
+              {needsConfirmation
+                ? 'Check your email to confirm your account before signing in.'
+                : 'Redirecting to your dashboard…'}
+            </div>
           </div>
         ) : (
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>

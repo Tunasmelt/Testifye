@@ -19,8 +19,19 @@ interface StreamOptions<T> {
   onFinish?: FinishCallback<T>;
 }
 
+function isRateLimitError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  return msg.includes('429') || msg.includes('rate limit') || msg.includes('rate_limit');
+}
+
 /**
  * Streams a structured object with GROQ → Google AI fallback on 429.
+ *
+ * NOTE: streamObject() from the AI SDK returns immediately without throwing —
+ * errors are deferred until the stream is consumed. To detect rate-limit errors
+ * early we do a first-chunk probe: we request the partialObjectStream, peek at
+ * the first chunk, and if it throws with a 429 we fall back to Google.
  */
 export async function streamWithFallback<T>(
   modelKey: ModelKey,
@@ -28,7 +39,6 @@ export async function streamWithFallback<T>(
 ) {
   const { schema, prompt, system, temperature = 0.4, allowGoogleFallback = false, onFinish } = options;
 
-  // Build base options (avoid passing undefined to streamObject)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function buildOpts(model: any) {
     return {
@@ -41,28 +51,39 @@ export async function streamWithFallback<T>(
     };
   }
 
-  try {
-    const model = getModel(modelKey, false);
-    return {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      stream: streamObject(buildOpts(model) as any),
-      provider: 'groq' as const,
-      model: model.modelId,
-    };
-  } catch (err: unknown) {
-    const isRateLimit = err instanceof Error && (
-      err.message.includes('429') ||
-      err.message.toLowerCase().includes('rate limit')
-    );
-    if (!isRateLimit || !allowGoogleFallback) throw err;
+  const groqModel = getModel(modelKey, false);
+  const stream = streamObject(buildOpts(groqModel) as any); // eslint-disable-line @typescript-eslint/no-explicit-any
+
+  // Probe the first chunk to detect immediate rate-limit errors.
+  // If the stream throws synchronously (some SDK versions) or on first read, catch it here.
+  if (allowGoogleFallback) {
+    try {
+      // Trigger error materialisation — if the model rejected immediately this throws.
+      // Always release the reader after the probe so the stream is not left locked.
+      const probeReader = stream.partialObjectStream.getReader();
+      await probeReader.read().then(
+        () => { /* first chunk read OK — stream is live */ },
+        (err: unknown) => { throw err; }       // propagate read error
+      ).catch((err: unknown) => { throw err; });
+      probeReader.releaseLock();
+    } catch (err: unknown) {
+      if (!isRateLimitError(err)) throw err;   // non-429: re-throw
+
+      console.warn(`[AI] GROQ rate-limited for ${modelKey}, falling back to Google AI`);
+      const googleModel = getModel(modelKey, true);
+      return {
+        stream: streamObject(buildOpts(googleModel) as any), // eslint-disable-line @typescript-eslint/no-explicit-any
+        provider: 'google' as const,
+        model: googleModel.modelId,
+        estimatedTokens: 0,
+      };
+    }
   }
 
-  console.warn(`[AI] GROQ rate-limited for ${modelKey}, streaming via Google AI`);
-  const googleModel = getModel(modelKey, true);
   return {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    stream: streamObject(buildOpts(googleModel) as any),
-    provider: 'google' as const,
-    model: googleModel.modelId,
+    stream,
+    provider: 'groq' as const,
+    model: groqModel.modelId,
+    estimatedTokens: 0,
   };
 }

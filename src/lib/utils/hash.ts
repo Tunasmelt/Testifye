@@ -23,12 +23,24 @@ const PHASH_SIZE = 8; // 8×8 = 64-bit fingerprint
 /**
  * Computes a 64-bit perceptual hash of an image.
  * Renders to an 8×8 grayscale canvas and computes mean threshold → 16-char hex.
- * Browser-only (requires Canvas API).
+ * Browser-only (requires Canvas API). Returns empty string in non-browser environments.
  */
 export async function computePerceptualHash(file: File | Blob): Promise<string> {
+  // Graceful fallback when Canvas API is unavailable (SSR / Node.js / headless)
+  if (typeof document === 'undefined' || typeof URL === 'undefined') {
+    return '';
+  }
+
   return new Promise((resolve, reject) => {
     const img = new Image();
-    const url = URL.createObjectURL(file);
+    let url: string;
+    try {
+      url = URL.createObjectURL(file);
+    } catch {
+      // createObjectURL unavailable — return empty string (pHash skipped, exact dedup still works)
+      resolve('');
+      return;
+    }
 
     img.onload = () => {
       URL.revokeObjectURL(url);
@@ -37,7 +49,10 @@ export async function computePerceptualHash(file: File | Blob): Promise<string> 
         canvas.width  = PHASH_SIZE;
         canvas.height = PHASH_SIZE;
         const ctx = canvas.getContext('2d');
-        if (!ctx) throw new Error('Canvas 2D not available');
+        if (!ctx) {
+          resolve(''); // Canvas 2D unavailable — degrade gracefully
+          return;
+        }
 
         ctx.drawImage(img, 0, 0, PHASH_SIZE, PHASH_SIZE);
         const { data } = ctx.getImageData(0, 0, PHASH_SIZE, PHASH_SIZE);
@@ -67,7 +82,8 @@ export async function computePerceptualHash(file: File | Blob): Promise<string> 
 
     img.onerror = () => {
       URL.revokeObjectURL(url);
-      reject(new Error('Failed to load image for perceptual hashing'));
+      // Non-fatal: fall back to empty pHash (exact dedup via SHA-256 still works)
+      resolve('');
     };
 
     img.src = url;
@@ -82,6 +98,7 @@ export async function computePerceptualHash(file: File | Blob): Promise<string> 
  * Typical similar-image threshold: ≤ 10 (out of 64 for 16-char pHash).
  */
 export function hammingDistance(hexA: string, hexB: string): number {
+  if (!hexA || !hexB) throw new Error('pHash is empty — cannot compute Hamming distance');
   if (hexA.length !== hexB.length) {
     throw new Error(`pHash length mismatch: ${hexA.length} vs ${hexB.length}`);
   }

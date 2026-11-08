@@ -2,13 +2,13 @@
 
 /**
  * SidekickChat — project-scoped conversational QA assistant.
- * Phase 1: session-only memory (React state, cleared on refresh).
- * Phase 2 will persist to chat_sessions table.
+ * Phase 2: persists to chat_sessions table via /api/chat/[projectId].
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import * as I from '@/components/ui/Icons';
 import { SimpleMarkdown } from './SimpleMarkdown';
+import type { ChatMessage } from '@/lib/supabase/types';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -77,18 +77,71 @@ function TypingDots() {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
+const SYSTEM_GREETING = (name: string): Message => ({
+  role: 'system',
+  text: `Hi! I'm scoped to your **${name}** project. I know your analyzed screens, test cases, and the latest artifacts. Ask me anything QA-related.`,
+});
+
 export function SidekickChat({ projectId, projectName }: Props) {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      role: 'system',
-      text: `Hi! I'm scoped to your **${projectName}** project. I know your analyzed screens, test cases, and the latest artifacts. Ask me anything QA-related.`,
-    },
-  ]);
+  const [messages, setMessages] = useState<Message[]>([SYSTEM_GREETING(projectName)]);
   const [input,     setInput]     = useState('');
   const [streaming, setStreaming] = useState(false);
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [loaded,    setLoaded]    = useState(false);
+  const [clearing,  setClearing]  = useState(false);
   const scrollRef  = useRef<HTMLDivElement>(null);
   const abortRef   = useRef<AbortController | null>(null);
   const inputRef   = useRef<HTMLTextAreaElement>(null);
+
+  // ── Load persisted messages on mount ────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const res = await fetch(`/api/chat/${projectId}`);
+        if (!res.ok || cancelled) return;
+        const data = await res.json() as { messages: ChatMessage[] };
+        if (cancelled) return;
+        if (data.messages?.length) {
+          setMessages([
+            SYSTEM_GREETING(projectName),
+            ...data.messages.map((m) => ({ role: m.role as Role, text: m.content })),
+          ]);
+        }
+      } catch {
+        // Non-fatal — start with empty chat
+      } finally {
+        if (!cancelled) setLoaded(true);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
+
+  // ── Persist helper ───────────────────────────────────────────────────────────
+  const persist = useCallback(async (msgs: Message[]) => {
+    setSaveState('saving');
+    try {
+      const payload: ChatMessage[] = msgs
+        .filter((m) => m.role !== 'system')
+        .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.text, timestamp: new Date().toISOString() }));
+      await fetch(`/api/chat/${projectId}`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ messages: payload }),
+      });
+      setSaveState('saved');
+      setTimeout(() => setSaveState('idle'), 2500);
+    } catch {
+      setSaveState('idle');
+    }
+  }, [projectId]);
+
+  // Abort any in-flight stream on unmount
+  useEffect(() => {
+    return () => { abortRef.current?.abort(); };
+  }, []);
 
   // Auto-scroll to bottom whenever messages update
   useEffect(() => {
@@ -143,31 +196,42 @@ export function SidekickChat({ projectId, projectName }: Props) {
         if (done) break;
 
         buf += decoder.decode(value, { stream: true });
-        const lines = buf.split('\n');
-        buf = lines.pop() ?? '';
+        const events = buf.split('\n\n');
+        buf = events.pop() ?? '';
 
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
+        for (const sseBlock of events) {
+          // An SSE event block may have multiple lines; find the data: line
+          const line = sseBlock.split('\n').find((l: string) => l.startsWith('data: '));
+          if (!line) continue;
+          let event: { type: string; text?: string; message?: string };
           try {
-            const event = JSON.parse(line.slice(6)) as { type: string; text?: string; message?: string };
-            if (event.type === 'delta' && event.text) {
-              accumulated += event.text;
-              setMessages((prev) => {
-                const copy = [...prev];
-                copy[copy.length - 1] = { role: 'assistant', text: accumulated, streaming: true };
-                return copy;
-              });
-            } else if (event.type === 'done') {
-              setMessages((prev) => {
-                const copy = [...prev];
-                copy[copy.length - 1] = { role: 'assistant', text: accumulated };
-                return copy;
-              });
-            } else if (event.type === 'error') {
-              throw new Error(event.message ?? 'Stream error');
-            }
+            event = JSON.parse(line.slice(6));
           } catch {
-            // Malformed JSON line — skip
+            continue; // Malformed JSON line — skip
+          }
+          if (event.type === 'delta' && event.text) {
+            accumulated += event.text;
+            setMessages((prev) => {
+              const copy = [...prev];
+              copy[copy.length - 1] = { role: 'assistant', text: accumulated, streaming: true };
+              return copy;
+            });
+          } else if (event.type === 'done') {
+            setMessages((prev) => {
+              const copy = [...prev];
+              copy[copy.length - 1] = { role: 'assistant', text: accumulated };
+              return copy;
+            });
+            // Persist outside the updater — state updaters must be pure (no side-effects)
+            const finalMsgs = [
+              ...messages,
+              { role: 'user' as const, text: q },
+              { role: 'assistant' as const, text: accumulated },
+            ];
+            persist(finalMsgs);
+          } else if (event.type === 'error') {
+            // AI-reported error — propagate to outer catch
+            throw new Error(event.message ?? 'Stream error');
           }
         }
       }
@@ -196,7 +260,7 @@ export function SidekickChat({ projectId, projectName }: Props) {
       abortRef.current = null;
       inputRef.current?.focus();
     }
-  }, [input, streaming, messages, projectId]);
+  }, [input, streaming, messages, projectId, persist]);
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -221,26 +285,41 @@ export function SidekickChat({ projectId, projectName }: Props) {
             Project-aware chat. Knows your scope, screens, and every artifact you&apos;ve generated.
           </div>
         </div>
-        {hasConversation && (
-          <button
-            className="tf-btn tf-btn-ghost tf-btn-sm"
-            onClick={() => setMessages([messages[0]])}
-            title="Clear chat"
-          >
-            <I.Refresh size={13} /> Clear
-          </button>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {saveState === 'saving' && (
+            <span style={{ fontSize: 11, color: 'var(--text-2)' }}>Saving…</span>
+          )}
+          {saveState === 'saved' && (
+            <span style={{ fontSize: 11, color: 'var(--accent)' }}>✓ Saved</span>
+          )}
+          {hasConversation && (
+            <button
+              className="tf-btn tf-btn-ghost tf-btn-sm"
+              disabled={clearing}
+              onClick={async () => {
+                setClearing(true);
+                setMessages([SYSTEM_GREETING(projectName)]);
+                setSaveState('idle');
+                try { await fetch(`/api/chat/${projectId}`, { method: 'DELETE' }); } catch { /* non-fatal */ }
+                finally { setClearing(false); }
+              }}
+              title="Clear chat"
+            >
+              <I.Refresh size={13} /> {clearing ? 'Clearing…' : 'Clear'}
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* ── Session notice ─────────────────────────────────────────────────── */}
-      {!hasConversation && (
+      {/* ── Persistence notice ─────────────────────────────────────────────── */}
+      {!hasConversation && loaded && (
         <div
           className="tf-card"
           style={{ marginBottom: 16, padding: '10px 14px', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 10 }}
         >
-          <I.Alert size={14} style={{ color: 'var(--text-1)', flexShrink: 0 }} />
+          <I.Sparkle size={14} style={{ color: 'var(--accent)', flexShrink: 0 }} />
           <span style={{ fontSize: 12, color: 'var(--text-1)' }}>
-            Chat history is session-only — refreshing the page will clear it.
+            Chat history is saved automatically. Pick up where you left off any time.
           </span>
         </div>
       )}
@@ -295,7 +374,7 @@ export function SidekickChat({ projectId, projectName }: Props) {
               className="tf-chip"
               style={{ cursor: 'pointer' }}
               onClick={() => send(preset)}
-              disabled={streaming}
+              disabled={streaming || !loaded}
             >
               {preset}
             </button>

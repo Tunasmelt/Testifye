@@ -30,10 +30,21 @@ export function AssetUploader({ projectId, userId, existing, onUploaded, maxScre
 
   const reset = () => setState({ status: 'idle' });
 
-  const processFile = useCallback(async (file: File, skipDedupCheck = false) => {
+  const processFile = useCallback(async (file: File, skipDedupCheck = false, skipGifWarning = false) => {
     // Validate type
     if (!ACCEPTED.includes(file.type)) {
       setState({ status: 'error', message: `Unsupported file type: ${file.type}. Use PNG, JPEG, or WebP.` });
+      return;
+    }
+
+    // Warn about GIF animation loss (only first frame is kept after WebP compression)
+    if (file.type === 'image/gif' && !skipGifWarning) {
+      setState({
+        status: 'dedup',
+        message: 'GIF detected — only the first frame will be used (animations are not supported). Upload the static frame?',
+        onConfirm: () => processFile(file, false, true),
+        onCancel: reset,
+      });
       return;
     }
 
@@ -46,18 +57,17 @@ export function AssetUploader({ projectId, userId, existing, onUploaded, maxScre
     setState({ status: 'uploading', name: file.name, pct: 0 });
 
     try {
-      const result = await uploadAsset({
-        projectId,
-        userId,
-        file,
-        onProgress: (pct) => {
-          if (pct < 100) setState({ status: 'uploading', name: file.name, pct });
-        },
-      });
-
-      // Dedup check (skip if user confirmed)
+      // ── Pre-flight dedup: hash before uploading to avoid wasted round-trips ──
       if (!skipDedupCheck) {
-        const dedup = checkDuplicate(result.sha256, result.pHash, existing);
+        const { computeSHA256, computePerceptualHash } = await import('@/lib/utils/hash');
+        const { compressImage, blobToArrayBuffer } = await import('@/lib/utils/compression');
+        const { blob: compressed } = await compressImage(file);
+        const buffer = await blobToArrayBuffer(compressed);
+        const [sha256, pHash] = await Promise.all([
+          computeSHA256(buffer),
+          computePerceptualHash(compressed).catch(() => ''),
+        ]);
+        const dedup = checkDuplicate(sha256, pHash, existing);
 
         if (dedup.isDuplicate && dedup.exactMatch) {
           setState({
@@ -79,6 +89,15 @@ export function AssetUploader({ projectId, userId, existing, onUploaded, maxScre
         }
       }
 
+      const result = await uploadAsset({
+        projectId,
+        userId,
+        file,
+        onProgress: (pct) => {
+          if (pct < 100) setState({ status: 'uploading', name: file.name, pct });
+        },
+      });
+
       setState({ status: 'done', asset: result.asset });
       onUploaded(result.asset);
 
@@ -98,13 +117,21 @@ export function AssetUploader({ projectId, userId, existing, onUploaded, maxScre
   const onDragLeave = () => setState((s) => s.status === 'dragging' ? { status: 'idle' } : s);
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
-    const file = e.dataTransfer.files[0];
-    if (file) processFile(file);
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length === 0) return;
+    if (files.length > 1) {
+      // Process them sequentially — show a note
+      setState({ status: 'error', message: `${files.length} files dropped — uploading one at a time. Drop files individually for best results, or use the file picker.` });
+      // Still process the first file after a short delay so user sees the message
+      setTimeout(() => processFile(files[0]), 1500);
+      return;
+    }
+    processFile(files[0]);
   };
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) processFile(file);
+    const files = Array.from(e.target.files ?? []);
+    if (files.length > 0) processFile(files[0]);
     e.target.value = ''; // allow re-selecting same file
   };
 

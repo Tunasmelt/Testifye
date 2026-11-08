@@ -70,11 +70,11 @@
   --text-0: #FAFAFA;
   --text-1: #999999;
   --text-2: #666666;
-  --accent: #7C3AED;
-  --accent-2: #8B5CF6;
+  --accent: #8B5CF6;
+  --accent-2: #A78BFA;
   --accent-3: #6366F1;
-  --accent-glow: rgba(124, 58, 237, 0.15);
-  --accent-strong: rgba(124, 58, 237, 0.40);
+  --accent-glow: rgba(139, 92, 246, 0.15);
+  --accent-strong: rgba(139, 92, 246, 0.40);
   --glass-bg: rgba(20, 20, 20, 0.75);
   --border: rgba(255, 255, 255, 0.06);
   --border-strong: rgba(255, 255, 255, 0.10);
@@ -995,4 +995,32 @@
 
 .tf-tcrow-precond {
   margin-bottom: 8px;
+}
+
+/* ── Dropdown ─────────────────────────────────────────────────────────────── */
+.tf-dropdown {
+  background:    var(--bg-2);
+  border:        1px solid var(--border);
+  border-radius: 10px;
+  padding:       4px;
+  box-shadow:    0 8px 24px rgba(0,0,0,0.35);
+}
+
+.tf-dropdown-item {
+  display:       block;
+  width:         100%;
+  text-align:    left;
+  padding:       8px 12px;
+  font-size:     13px;
+  color:         var(--text-0);
+  background:    transparent;
+  border:        none;
+  border-radius: 7px;
+  cursor:        pointer;
+  white-space:   nowrap;
+  transition:    background 0.15s;
+}
+
+.tf-dropdown-item:hover {
+  background: var(--bg-3);
 }

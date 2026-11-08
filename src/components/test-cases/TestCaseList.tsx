@@ -8,6 +8,13 @@ import * as I from '@/components/ui/Icons';
 
 const CATEGORIES = ['all', 'functional', 'edge', 'negative', 'accessibility', 'performance'] as const;
 
+const PRIORITY_ORDER: Record<string, number> = {
+  critical: 0,
+  high:     1,
+  medium:   2,
+  low:      3,
+};
+
 interface Props {
   cases:       TestCase[];
   streaming:   TestCase[];
@@ -20,7 +27,7 @@ export function TestCaseList({ cases, streaming, status, verifyingIds = new Set(
   const [filter, setFilter]   = useState<string>('all');
   const [search, setSearch]   = useState('');
 
-  const isStreaming = status === 'streaming' || status === 'starting';
+  const isStreaming = status === 'streaming' || status === 'starting' || status === 'judging';
   const isComplete  = status === 'complete' || status === 'partial';
 
   // Decide which list to display: during stream show streaming[], after done show cases[]
@@ -29,18 +36,27 @@ export function TestCaseList({ cases, streaming, status, verifyingIds = new Set(
   const filtered = useMemo(() => {
     let list = displayList;
     if (filter !== 'all') {
-      list = list.filter((tc) => tc.category.toLowerCase().includes(filter));
+      list = list.filter((tc) => (tc.category ?? '').toLowerCase().includes(filter));
     }
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter((tc) =>
-        tc.title.toLowerCase().includes(q) ||
-        tc.tc_id.toLowerCase().includes(q) ||
-        tc.category.toLowerCase().includes(q)
+        (tc.title ?? '').toLowerCase().includes(q) ||
+        (tc.tc_id ?? '').toLowerCase().includes(q) ||
+        (tc.category ?? '').toLowerCase().includes(q)
       );
     }
+    // Sort by priority within the filtered result (SCOPE.md: "sort by priority within groups")
+    // Only sort complete results — leave streaming order intact so new cases appear at bottom
+    if (isComplete) {
+      list = [...list].sort((a, b) => {
+        const pa = PRIORITY_ORDER[a.priority?.toLowerCase() ?? ''] ?? 99;
+        const pb = PRIORITY_ORDER[b.priority?.toLowerCase() ?? ''] ?? 99;
+        return pa - pb;
+      });
+    }
     return list;
-  }, [displayList, filter, search]);
+  }, [displayList, filter, search, isComplete]);
 
   // How many skeleton rows to show during streaming
   const skeletonCount = isStreaming ? Math.max(0, Math.min(3, 12 - streaming.length)) : 0;
@@ -49,7 +65,7 @@ export function TestCaseList({ cases, streaming, status, verifyingIds = new Set(
   const catCounts = useMemo(() => {
     const counts: Record<string, number> = { all: displayList.length };
     for (const tc of displayList) {
-      const cat = tc.category.toLowerCase();
+      const cat = (tc.category ?? '').toLowerCase();
       for (const c of CATEGORIES.slice(1)) {
         if (cat.includes(c)) counts[c] = (counts[c] ?? 0) + 1;
       }

@@ -48,7 +48,8 @@ export const Upload   = (p: IconProps) => <Icon {...p}><path d="M21 15v4a2 2 0 0
 export const Download = (p: IconProps) => <Icon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></Icon>;
 export const Check    = (p: IconProps) => <Icon {...p}><path d="M20 6L9 17l-5-5"/></Icon>;
 export const CheckCircle = (p: IconProps) => <Icon {...p}><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></Icon>;
-export const Alert    = (p: IconProps) => <Icon {...p}><path d="M12 2L1 21h22L12 2z"/><path d="M12 9v5M12 18v0.1"/></Icon>;
+export const Alert       = (p: IconProps) => <Icon {...p}><path d="M12 2L1 21h22L12 2z"/><path d="M12 9v5M12 18v0.1"/></Icon>;
+export const AlertCircle = (p: IconProps) => <Icon {...p}><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16v.1"/></Icon>;
 export const X        = (p: IconProps) => <Icon {...p}><path d="M18 6L6 18M6 6l12 12"/></Icon>;
 export const ChevronRight = (p: IconProps) => <Icon {...p}><path d="M9 6l6 6-6 6"/></Icon>;
 export const ChevronDown  = (p: IconProps) => <Icon {...p}><path d="M6 9l6 6 6-6"/></Icon>;
@@ -63,6 +64,9 @@ export const Layers   = (p: IconProps) => <Icon {...p}><path d="M12 2L2 7l10 5 1
 export const Image    = (p: IconProps) => <Icon {...p}><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></Icon>;
 export const Trend    = (p: IconProps) => <Icon {...p}><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></Icon>;
 export const Filter   = (p: IconProps) => <Icon {...p}><path d="M3 4h18l-7 9v6l-4 2v-8L3 4z"/></Icon>;
+export const Pencil   = (p: IconProps) => <Icon {...p}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></Icon>;
+export const Rocket   = (p: IconProps) => <Icon {...p}><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/></Icon>;
+export const Shield   = (p: IconProps) => <Icon {...p}><path d="M12 2l7 4v5c0 5.25-3.5 9.74-7 11-3.5-1.26-7-5.75-7-11V6l7-4z"/></Icon>;
 
 export const Logo = ({ size = 28, style }: IconProps) => (
   <svg width={size} height={size} viewBox="0 0 32 32" fill="none" style={style} aria-hidden="true">

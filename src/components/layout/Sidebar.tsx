@@ -18,6 +18,7 @@ export const NAV_ITEMS = [
   { id: 'data',      label: 'Test Data',        Icon: I.Data,      href: 'test-data' },
   { id: 'persona',   label: 'Persona Friction', Icon: I.Persona,   href: 'persona-friction' },
   { id: 'i18n',      label: 'i18n Audit',       Icon: I.Globe,     href: 'i18n-audit' },
+  { id: 'launch',    label: 'Launch Readiness', Icon: I.Rocket,    href: 'launch-readiness' },
   { id: 'export',    label: 'Export',           Icon: I.Export,    href: 'export' },
 ] as const;
 
@@ -106,14 +107,15 @@ export function Sidebar({ project, userEmail, userPlan }: SidebarProps) {
           <span>Sidekick Chat</span>
           <span className="tf-nav-badge" style={{ background: 'rgba(52,211,153,0.12)', color: 'var(--success)' }}>●</span>
         </Link>
-        <Link
-          href="/dashboard/settings"
-          className={`tf-nav-item${pathname.includes('/settings') ? ' active' : ''}`}
-          style={{ textDecoration: 'none' }}
+        {/* Settings — Phase 2 feature, disabled until page exists */}
+        <span
+          className="tf-nav-item tf-nav-item--disabled"
+          title="Settings — coming in Phase 2"
+          style={{ cursor: 'not-allowed', opacity: 0.45 }}
         >
           <I.Settings size={15} />
           <span>Settings</span>
-        </Link>
+        </span>
       </nav>
 
       {/* Footer */}

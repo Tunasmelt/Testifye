@@ -138,6 +138,7 @@ export async function uploadAsset(opts: UploadOptions): Promise<UploadResult> {
   const res = await fetch('/api/assets/upload', {
     method: 'POST',
     body: formData,
+    signal: AbortSignal.timeout(60_000), // 60 s upload timeout
   });
 
   onProgress?.(90);

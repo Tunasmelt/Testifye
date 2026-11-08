@@ -50,7 +50,7 @@ export function TestCaseRow({ tc, index, isVerifying, isStreaming }: Props) {
         </button>
 
         <div className="tf-tcrow-meta">
-          <span className={`tf-badge ${PRIORITY_BADGE[tc.priority]}`}>{tc.priority}</span>
+          <span className={`tf-badge ${PRIORITY_BADGE[tc.priority] ?? ''}`}>{tc.priority ?? '—'}</span>
           <span className="tf-chip">{tc.category}</span>
           <span style={{ fontSize: 11, color: 'var(--text-1)' }}>
             · {tc.step_count} steps
@@ -75,7 +75,7 @@ export function TestCaseRow({ tc, index, isVerifying, isStreaming }: Props) {
               </div>
             )}
             <div className="tf-tcrow-steps-list">
-              {tc.steps.map((step) => (
+              {(tc.steps ?? []).map((step) => (
                 <div key={step.step_number} className="tf-tcrow-step">
                   <span className="tf-tcrow-step-num">{step.step_number}</span>
                   <div style={{ flex: 1 }}>

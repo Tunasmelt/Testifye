@@ -21,10 +21,13 @@ export const GapAnalysisOutputSchema = z.object({
   findings: z.array(GapFindingSchema),
   requirements_count: z.number().describe('Total requirements parsed from PRD'),
   summary: z.object({
-    contradictions: z.number(),
-    missing_flows: z.number(),
-    ambiguities: z.number(),
-    untestable: z.number(),
+    contradictions:         z.number(),
+    missing_flows:          z.number(),
+    ambiguities:            z.number(),
+    untestable:             z.number(),
+    undefined_error_states: z.number(),
+    missing_from_ui:        z.number(),
+    undocumented_features:  z.number(),
   }),
 });
 

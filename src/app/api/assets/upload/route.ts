@@ -4,10 +4,12 @@
  * Thin route handler — validates, calls storage, inserts DB record.
  * Max size: 200 KB (compressed WebP at ≤150 KB + form overhead).
  */
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { cookies } from 'next/headers';
+import { runScout } from '@/lib/ai/weaver.service';
+import type { Project } from '@/lib/supabase/types';
 
 export const runtime = 'nodejs';
 
@@ -51,9 +53,11 @@ export async function POST(req: NextRequest) {
   const origName   = formData.get('original_name') as string | null;
   const label      = (formData.get('label') as string | null) ?? undefined;
 
-  if (!file || !projectId || !sha256 || !pHash) {
+  if (!file || !projectId || !sha256) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
   }
+  // pHash may be '' if Canvas/phash is unavailable in the client (non-fatal — skip perceptual dedup)
+  const pHashValue = pHash?.trim() || null;
 
   if (file.size > MAX_BYTES) {
     return NextResponse.json({ error: `File exceeds ${MAX_BYTES / 1024} KB limit` }, { status: 413 });
@@ -64,9 +68,10 @@ export async function POST(req: NextRequest) {
   // ── Verify project ownership ──────────────────────────────────────────────
   const { data: project } = await supabase
     .from('projects')
-    .select('id')
+    .select('*')
     .eq('id', projectId)
     .eq('user_id', user.id)
+    .eq('status', 'active')
     .maybeSingle();
 
   if (!project) {
@@ -112,7 +117,7 @@ export async function POST(req: NextRequest) {
       file_name:       origName ?? file.name,
       storage_path:    storagePath,
       content_hash:    sha256,
-      perceptual_hash: pHash,
+      perceptual_hash: pHashValue,
       file_size:       file.size,
       mime_type:       'image/webp',
       metadata:        { label, vision_map_status: 'pending' },
@@ -127,6 +132,39 @@ export async function POST(req: NextRequest) {
     // Storage already uploaded — leave orphan for cleanup job, return error
     return NextResponse.json({ error: 'Database insert failed' }, { status: 500 });
   }
+
+  // ── Shadow Scout: run vision analysis in background after response ────────
+  const assetId = asset.id;
+  // Use a long-lived signed URL (1 hour) — getPublicUrl won't work on private buckets
+  const { data: signedData } = await supabase.storage
+    .from('project-assets')
+    .createSignedUrl(storagePath, 3600);
+  const imageUrl = signedData?.signedUrl ?? '';
+
+  const allowFallback = (project as Project).extended_providers_enabled ?? false;
+
+  after(async () => {
+    if (!imageUrl) {
+      console.error('[shadow-scout] Could not generate signed URL for asset', assetId);
+      return;
+    }
+    try {
+      await runScout({
+        projectId,
+        userId: user.id,
+        assetId,
+        imageUrl,
+        allowGoogleFallback: allowFallback,
+      });
+    } catch (err) {
+      console.error('[shadow-scout] Failed to analyze asset:', assetId, err);
+      // Merge failed status into existing metadata to preserve label/dimensions/etc.
+      const admin = createAdminClient();
+      const { data: cur } = await admin.from('project_assets').select('metadata').eq('id', assetId).maybeSingle();
+      const failedMeta = { ...(cur?.metadata as Record<string, unknown> ?? {}), vision_map_status: 'failed' };
+      await admin.from('project_assets').update({ metadata: failedMeta }).eq('id', assetId);
+    }
+  });
 
   return NextResponse.json({ asset, fromCache: false }, { status: 201 });
 }

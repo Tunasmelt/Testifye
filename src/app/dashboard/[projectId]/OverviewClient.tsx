@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { AssetUploader } from '@/components/project/AssetUploader';
 import { ScreenThumbnail } from '@/components/project/ScreenThumbnail';
@@ -18,6 +18,67 @@ interface Props {
 export function OverviewClient({ project, assets: initialAssets, artifacts, userId }: Props) {
   const [assets, setAssets] = useState<ProjectAsset[]>(initialAssets);
   const [showUploader, setShowUploader] = useState(false);
+  const [editingContext, setEditingContext] = useState(false);
+  const [descDraft, setDescDraft]     = useState(project.description ?? '');
+  const [scopeDraft, setScopeDraft]   = useState(project.scope ?? '');
+  const [savingContext, setSavingContext] = useState(false);
+  const [contextError, setContextError]  = useState<string | null>(null);
+
+  const dirtyCount = assets.filter((a) => a.is_dirty).length;
+
+  // Re-sync draft fields if the project prop is refreshed by the server (e.g. after revalidation)
+  useEffect(() => {
+    if (!editingContext) {
+      setDescDraft(project.description ?? '');
+      setScopeDraft(project.scope ?? '');
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.description, project.scope]);
+
+  async function saveContext() {
+    setSavingContext(true);
+    setContextError(null);
+    try {
+      const res = await fetch(`/api/projects/${project.id}/settings`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ description: descDraft, scope: scopeDraft }),
+      });
+      if (res.ok) {
+        const data = await res.json() as { contextChanged?: boolean };
+        if (data.contextChanged) {
+          setAssets((prev) => prev.map((a) => ({ ...a, is_dirty: true })));
+        }
+        setEditingContext(false);
+      } else {
+        const err = await res.json().catch(() => ({})) as { error?: string };
+        setContextError(err.error ?? 'Failed to save. Please try again.');
+      }
+    } catch {
+      setContextError('Network error. Please try again.');
+    } finally {
+      setSavingContext(false);
+    }
+  }
+  const [extProviders, setExtProviders] = useState(project.extended_providers_enabled ?? false);
+  const [togglingExt, setTogglingExt]  = useState(false);
+
+  async function toggleExtProviders(val: boolean) {
+    setExtProviders(val); // optimistic
+    setTogglingExt(true);
+    try {
+      const res = await fetch(`/api/projects/${project.id}/settings`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ extended_providers_enabled: val }),
+      });
+      if (!res.ok) setExtProviders(!val); // revert on error
+    } catch {
+      setExtProviders(!val); // revert on network failure
+    } finally {
+      setTogglingExt(false);
+    }
+  }
 
   const snap = project.manifest_snapshot ?? {};
   const tcCount     = snap.test_suite?.tc_count ?? 0;
@@ -34,10 +95,14 @@ export function OverviewClient({ project, assets: initialAssets, artifacts, user
 
   const baseHref = `/dashboard/${project.id}`;
 
-  function relativeTime(isoStr: string) {
-    const diff = Date.now() - new Date(isoStr).getTime();
-    if (diff < 60_000)    return 'just now';
-    if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
+  function relativeTime(isoStr: string | null | undefined) {
+    if (!isoStr) return 'never';
+    const ts = new Date(isoStr).getTime();
+    if (!Number.isFinite(ts)) return 'unknown';
+    const diff = Date.now() - ts;
+    if (diff < 0)          return 'just now';
+    if (diff < 60_000)     return 'just now';
+    if (diff < 3_600_000)  return `${Math.floor(diff / 60_000)}m ago`;
     if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
     return `${Math.floor(diff / 86_400_000)}d ago`;
   }
@@ -57,6 +122,9 @@ export function OverviewClient({ project, assets: initialAssets, artifacts, user
           </div>
         </div>
         <div className="tf-row">
+          <button className="tf-btn tf-btn-ghost" onClick={() => setEditingContext((v) => !v)}>
+            <I.Alert size={13} /> Edit context
+          </button>
           <button className="tf-btn" onClick={() => setShowUploader((v) => !v)}>
             <I.Upload size={14} /> Add screenshot
           </button>
@@ -65,6 +133,65 @@ export function OverviewClient({ project, assets: initialAssets, artifacts, user
           </Link>
         </div>
       </div>
+
+      {/* Dirty context banner */}
+      {dirtyCount > 0 && !editingContext && (
+        <div
+          className="tf-card tf-fade-in"
+          style={{ marginBottom: 16, padding: '10px 14px', borderColor: 'var(--accent)', background: 'var(--accent-glow)', display: 'flex', alignItems: 'center', gap: 12 }}
+        >
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)', flexShrink: 0, boxShadow: '0 0 6px var(--accent)', animation: 'tf-pulse-violet 1.8s ease-in-out infinite' }} />
+          <div style={{ flex: 1, fontSize: 13 }}>
+            <strong>Context changed.</strong> {dirtyCount} screen{dirtyCount > 1 ? 's' : ''} may need re-analysis with your updated description.
+          </div>
+          <Link href={`${baseHref}/test-cases`} className="tf-btn tf-btn-primary" style={{ textDecoration: 'none', fontSize: 12 }}>
+            Re-analyze
+          </Link>
+        </div>
+      )}
+
+      {/* Inline context editor */}
+      {editingContext && (
+        <div className="tf-card tf-fade-in" style={{ marginBottom: 16, padding: 16 }}>
+          <div className="tf-card-head" style={{ marginBottom: 12 }}>
+            <div className="tf-card-title"><I.Alert size={14} /> Edit Project Context</div>
+            <span className="tf-card-sub">Changing description or scope will mark all screens for re-analysis.</span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div>
+              <div className="tf-label" style={{ marginBottom: 4 }}>Description</div>
+              <textarea
+                className="tf-input"
+                rows={3}
+                style={{ width: '100%', resize: 'vertical', fontFamily: 'inherit', fontSize: 13 }}
+                value={descDraft}
+                onChange={(e) => setDescDraft(e.target.value)}
+              />
+            </div>
+            <div>
+              <div className="tf-label" style={{ marginBottom: 4 }}>Scope / Focus</div>
+              <textarea
+                className="tf-input"
+                rows={3}
+                style={{ width: '100%', resize: 'vertical', fontFamily: 'inherit', fontSize: 13 }}
+                value={scopeDraft}
+                onChange={(e) => setScopeDraft(e.target.value)}
+              />
+            </div>
+            {contextError && (
+              <div style={{ fontSize: 12, color: 'var(--error)', padding: '6px 10px', background: 'rgba(248,113,113,0.08)', borderRadius: 6 }}>
+                {contextError}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button className="tf-btn tf-btn-ghost" onClick={() => { setEditingContext(false); setContextError(null); }}>Cancel</button>
+              <button className="tf-btn tf-btn-primary" onClick={saveContext} disabled={savingContext}>
+                {savingContext ? 'Saving…' : 'Save & mark dirty'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Inline uploader */}
       {showUploader && (
@@ -111,7 +238,7 @@ export function OverviewClient({ project, assets: initialAssets, artifacts, user
               No screenshots yet — add some to start generating.
             </div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(90px, 1fr))', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(90px, 1fr))', gap: 10, maxHeight: 400, overflowY: 'auto' }}>
               {assets.map((asset) => (
                 <ScreenThumbnail key={asset.id} asset={asset} />
               ))}
@@ -146,6 +273,37 @@ export function OverviewClient({ project, assets: initialAssets, artifacts, user
       </div>
 
       {/* Feature shortcuts */}
+      {/* Project Settings */}
+      <div className="tf-card" style={{ marginBottom: 16 }}>
+        <div className="tf-card-head">
+          <div className="tf-card-title"><I.Alert size={14} /> Project Settings</div>
+        </div>
+        <div style={{ padding: '4px 0' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, padding: '10px 0' }}>
+            <label className="tf-toggle" style={{ flexShrink: 0, opacity: togglingExt ? 0.6 : 1 }}>
+              <input
+                type="checkbox"
+                checked={extProviders}
+                disabled={togglingExt}
+                onChange={(e) => toggleExtProviders(e.target.checked)}
+              />
+              <span className="tf-toggle-slider" />
+            </label>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>Extended AI Providers</div>
+              <div style={{ fontSize: 12, color: 'var(--text-1)', marginTop: 2, maxWidth: 480 }}>
+                Allow Google AI Studio as a fallback when GROQ rate-limits. Disable to keep all AI processing GROQ-only (no data sent to Google).
+              </div>
+              {extProviders && (
+                <div style={{ fontSize: 11, color: 'var(--warning)', marginTop: 4 }}>
+                  ⚠ Your project data may be sent to Google AI Studio on rate-limit fallback.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div className="tf-card">
         <div className="tf-card-head">
           <div className="tf-card-title"><I.Sparkle size={14} /> Jump into a feature</div>
