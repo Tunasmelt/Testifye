@@ -1,49 +1,46 @@
 # Feature 8: Persona Friction Analysis
-Phase: 4 | Pipeline: Scout → Generator (audience-specific prompting) → Judge
+Phase: 4 (Task 4.1) | Status: done | Pipeline: existing Scout screen maps → single streaming Generator (no Judge run)
+Last updated: 2026-11-08
 
-## What it does
-Analyzes UX from the perspective of specific user personas. Answers "Would a tech-averse 60-year-old struggle with this checkout flow?" Each persona gets a tailored friction report with severity and drop-off risk.
+## Overview
+Analyzes UX from the perspective of selected user personas ("Would a tech-averse user struggle with this flow?"). ONE streaming response contains all selected personas; the UI renders one card per persona (not separate tabs/reports).
 
 ## Key files
-- `src/app/api/generate/persona-friction/route.ts`
-- `src/lib/schemas/persona-friction.ts` — PersonaFrictionOutputSchema (see SCHEMA.md)
-- `src/components/features/PersonaFrictionPage.tsx`
-- `src/components/generation/FrictionReport.tsx`
+- `src/app/dashboard/[projectId]/persona-friction/page.tsx` — server wrapper (AppShell)
+- `src/app/dashboard/[projectId]/persona-friction/PersonaFrictionClient.tsx` — persona picker, streaming cards
+- `src/app/api/generate/persona-friction/route.ts` — POST, SSE; also persists the artifact inline
+- `src/lib/hooks/useStreamPersonaFriction.ts` — SSE hook (status idle|starting|streaming|complete|error)
+- `src/lib/ai/prompts/persona-friction.ts` — system prompt + `buildPersonaFrictionPrompt`
+- `src/lib/ai/weaver.service.ts` — `streamPersonaFriction`
+- `src/lib/schemas/persona-friction.ts` — `PersonaFrictionOutputSchema`
 
-## Persona options (multi-select)
-- **Gen Z** — mobile-first, impatient, gesture-dependent, no patience for multi-step flows
-- **Tech-averse** — needs explicit guidance, no jargon, larger tap targets, clear error recovery
-- **Power User** — wants shortcuts, bulk actions, dense UI, keyboard navigation
-- **First-time User** — needs onboarding, progressive disclosure, no assumed knowledge
-- **Accessibility** — screen reader compatible, motor impaired, low vision (links to i18n audit)
+## Request / SSE
+- Body: `{ projectId, selectedPersonas: string[] }`; invalid ids are filtered, 0 valid → 400; no analyzed screens → 422.
+- Valid ids: `gen_z`, `tech_averse`, `power_user`, `first_time_user`, `accessibility`.
+- Events: `meta` {provider, model, estimatedTokens} → `partial` {object} (repeated) → `done` {object} | `error` {message}.
 
-## Output fields (from SCHEMA.md PersonaFrictionOutputSchema)
+## Output (src/lib/schemas/persona-friction.ts)
 ```
-persona:        string  (selected persona name)
-friction_items[]:
-  screen:         string
-  element:        string
-  friction_type:  cognitive_load | visual_hierarchy | interaction_pattern
-                  | language_complexity | trust_signal
-  severity:       critical | high | medium | low
+personas[]:
+  persona_id, persona_name, empathy_statement
+  ux_score:       0–100   (HIGHER = better; not "friction score")
   drop_off_risk:  high | medium | low
-  description:    string  (plain language, persona-appropriate)
-  suggestion:     string
-overall_friction_score:  0–100 (100 = worst friction)
-summary:        string  (2–3 sentence executive summary per persona)
+  friction_items[]:
+    screen, element, description, suggestion
+    friction_type: cognitive_load | trust_issue | missing_affordance
+                   | accessibility | confusion | visual_hierarchy
+    severity:      blocking | frustrating | annoying | minor
 ```
-
-## Friction types
-| Type | Examples |
-|---|---|
-| cognitive_load | Too many choices, unclear hierarchy |
-| visual_hierarchy | Important actions not prominent |
-| interaction_pattern | Unfamiliar gestures or conventions |
-| language_complexity | Jargon, passive voice, technical terms |
-| trust_signal | Missing privacy indicators, unclear pricing |
+No top-level `overall_friction_score` or `summary`.
 
 ## Gotchas
-- `drop_off_risk` is a new field (from gap analysis) — critical for product teams to prioritize
-- Each persona generates a SEPARATE report object — the page shows them in tabs
-- Persona prompts use different "voice": Gen Z analysis uses casual language; tech-averse uses clinical
-- `friction_type` enum is fixed — agents must not invent new values
+- Model: `FEATURE_MODEL_MAP.persona_friction.generator` = `reasoning_large`. The map lists a `judge`, but the route never runs one; artifact is saved `is_verified: false`.
+- Artifact saved as `artifact_type: 'persona_friction'` with `input_snapshot: { selected_personas }`; previous latest is flipped `is_latest: false`.
+- The UI merges `partial.personas` by `persona_id`, so cards fill in as the stream arrives.
+- `friction_type` and `severity` enums are fixed — do not invent values.
+- Route handler holds DB persistence logic (longer than the ~25-line thin-route rule). Follow-up: move to a service.
+- Page `<title>` still says "Testifye" (typo vs project name Tesifye).
+
+## Do not
+- Do not describe `ux_score` as friction; higher is better.
+- Do not split into per-persona API calls without updating the hook and UI (single object today).

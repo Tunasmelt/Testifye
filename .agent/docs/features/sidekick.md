@@ -1,64 +1,52 @@
 # Feature 6: Sidekick Chat
-Phase: 1 (UI, session-only) → Phase 2 (DB persistence) → Phase 5 (cross-session memory)
+Phase: 1 (Task 1.20, session-only) → Phase 2 (Task 2.9, DB persistence — built) → Phase 5 (Task 5.7, v2 cross-session memory — not started)
+Last updated: 2026-11-08
 
-## What it does
-Context-aware AI chat that knows the current project. Answers questions like "What test cases don't cover the payment flow?" or "Why did the UX score drop?". Sidekick is a **full page** — not a slide-in panel.
+## Overview
+Project-scoped QA chat. Full page (not a slide-in panel). Streams prose via `streamText`; messages are persisted per user+project in `chat_sessions`.
 
 ## Key files
-- `src/components/features/SidekickPage.tsx` — full chat page (Phase 1)
-- `src/components/shared/SimpleMarkdown.tsx` — lightweight regex-based markdown renderer
-- `src/app/api/generate/chat/route.ts` — streaming chat route handler
-- `src/lib/ai/context-budget.ts` — builds compressed project context for chat
-- `src/app/dashboard/[projectId]/sidekick/page.tsx` — route
+- `src/app/dashboard/[projectId]/sidekick/page.tsx` — server page; auth check, loads project, renders chat
+- `src/components/sidekick/SidekickChat.tsx` — chat UI, SSE reader, load/persist/clear calls
+- `src/components/sidekick/SimpleMarkdown.tsx` — regex markdown renderer (bold, italic, code, numbered/bullet lists; no dependency)
+- `src/app/api/generate/chat/route.ts` — streaming route (`streamText`, SSE)
+- `src/app/api/chat/[projectId]/route.ts` — persistence (GET load, POST upsert, DELETE clear)
+- `supabase/migrations/002_chat_sessions.sql` — `chat_sessions` table
+- `supabase/migrations/003_fix_vision_map_latest_and_chat_unique.sql` — guarantees `UNIQUE (project_id, user_id)` (`chat_sessions_unique_active`) when 001 created the table first; **not yet applied to the live DB**
 
-## Phase differences
+## Streaming route (`POST /api/generate/chat`)
+- Body: `{ projectId, messages: [{role, content}] }`; last 50 messages are used (`MAX_CHAT_MESSAGES`).
+- Uses Vercel AI SDK `streamText` (prose), NOT `streamObject`. `maxOutputTokens: 800`, `temperature: 0.5`, `maxDuration = 60`.
+- SSE events: `{type:'delta', text}` … `{type:'done'}` | `{type:'error', message}`.
+- Model: `getModel('reasoning_large', false)` directly — Groq only, bypasses `streamWithFallback`, so no Google fallback and no rate-limit/provider-chain handling.
+- System prompt (built in the route) includes: project name, description, app type, platform, tester role, analyzed screen count, generated test case count, test-suite `coverage_summary` (if any), latest UX audit `overall_score` (if any). It does NOT include screen-map contents, finding details, or chat history summaries, and does NOT use `context-budget.ts`.
+- Asks for concise markdown replies (2–4 short paragraphs).
 
-| Aspect | Phase 1 (v0) | Phase 2 (v1) | Phase 5 (v2) |
+## Persistence (`/api/chat/[projectId]`)
+- GET → `{ messages, updatedAt }` for the active session. POST `{ messages }` → upsert on `(project_id, user_id)`, capped at last 200 messages. DELETE → clear.
+- The client loads on mount, POSTs the full message array after each exchange (shows saving/saved state), DELETEs on “Clear”.
+- Table: one row per project per user (`UNIQUE(project_id, user_id)` — may be missing if 001 ran first, see database.md), `messages JSONB`, `is_active`, RLS own-rows.
+
+## UI
+- Four preset chips when empty: “Summarize test coverage”, “What's missing from UX?”, “Generate edge case ideas”, “Explain the Gap findings”.
+- Typing indicator via `.tf-typing-dot`; footer text “Context: {project} · Enter to send, Shift+Enter newline”; Clear button.
+
+## Phase table
+
+| Aspect | Phase 1 (v0) | Phase 2 (built) | Phase 5 (v2, not started) |
 |---|---|---|---|
-| Memory | Session (React state only) | DB-persisted (chat_sessions table) | Cross-session + cross-project |
-| Clear on refresh | Yes | No | No |
-| Context | Current project summary | Current project + last 4 AI actions | Cross-project patterns |
-| Model | reasoning_large | reasoning_large | reasoning_large |
-
-## SidekickPage layout
-- **Header:** "Sidekick" title + green live dot + "AI QA Assistant" label + model badge
-- **Messages area:** flex-1, scrollable, with auto-scroll to bottom
-- **Bubble types:**
-  - User: right-aligned, `--accent-strong` border
-  - Assistant: left-aligned, `.tf-card` style
-- **Typing indicator:** 3-dot bounce animation (`.tf-typing-dot` keyframes)
-- **Input area:** sticky bottom, textarea + Send button
-- **Context line** below input: "Context: {project name} · {active feature}"
-- **Suggested prompts** (shown when chat is empty — 4 chips):
-  1. "Summarize test coverage"
-  2. "What's missing from UX?"
-  3. "Generate edge case ideas"
-  4. "Explain the Gap findings"
-
-## Context budget for chat
-```
-chat_system(1K) + project_summary(2K) + screen_maps(3K) + 
-test_suite_summary(2K) + ux_score(500) + history(last 4 turns)(2K) + user_msg(1K)
-= ~11.5K tokens max
-```
-Context built by `context-budget.ts` — never pass raw manifest_snapshot to chat.
-
-## SimpleMarkdown.tsx
-Lightweight regex-based inline markdown (no external dependency):
-- `**bold**` → `<strong>`
-- `*italic*` → `<em>`
-- `` `code` `` → `<code>`
-- Numbered lists
-- Bullet lists
-
-## Phase 2: DB persistence (chat_sessions table)
-- On session start: `upsert` a `chat_sessions` row for this project
-- Per message pair: `append` to `messages JSONB` array
-- On page load: `fetch` messages from `chat_sessions` where `project_id = X`
-- "Clear Chat" button: sets `messages = []`
+| Memory | React state | `chat_sessions` per project/user | Cross-session + cross-project |
+| Survives refresh | No | Yes | Yes |
+| Context | project summary | project summary + counts + coverage + UX score | cross-project patterns |
 
 ## Gotchas
-- Phase 1: page refresh clears chat — communicate this clearly in UI ("Chat history cleared on refresh")
-- Phase 2: `chat_sessions` table has one row per project (upsert, not insert)
-- The chat route uses `streamObject` returning `{ message: string }` — prose, not structured JSON
-- Suggested prompts disappear once first message is sent
+- Assistant text is plain markdown prose, not `{ message }` JSON.
+- Persist POST replaces the whole array (client sends everything), so concurrent tabs overwrite each other (last write wins).
+- `/api/chat/[projectId]` GET/POST/DELETE call `ownsProject(projectId, user.id)` (admin client, checks `projects.user_id`) and return 404 if the project is not owned. Fixed; type-checked, no automated test.
+- The upsert needs the `UNIQUE (project_id, user_id)` constraint; on a DB where 001 ran before 002 it exists only after migration 003 is applied (not yet applied).
+- Route handler is long (context building inline) — violates thin-route rule; chat bypasses fallback layer.
+- Page `<title>` says “Testifye”.
+
+## Do not
+- Do not switch this route to `streamObject`.
+- Do not pass raw `manifest_snapshot` into the chat prompt.

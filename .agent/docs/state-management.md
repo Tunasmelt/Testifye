@@ -1,80 +1,57 @@
 # State Management
-Last updated: 2026-05-09
+Last updated: 2026-11-08
 
 ## Overview
-Two Zustand stores manage all client-side state. TanStack React Query handles server state (caching, invalidation). Rule: never use `useState` for cross-component state.
+Two Zustand stores under `src/lib/stores/` hold cross-component client state: generation (test-case streaming) and a rate-limit queue. **TanStack React Query is NOT installed or used** (not in `package.json`, no `QueryClient`/`useQuery` in `src/`), despite being in the CLAUDE.md stack list. Other features keep state in local `useState` inside their `*Client.tsx` plus a dedicated hook.
 
 ## Key files
-- `src/stores/generation.store.ts` — AI streaming state, partial recovery
-- `src/stores/rate-limit.store.ts` — per-model queues, cooldowns, token budgets
-- `src/hooks/useProject.ts` — TanStack Query wrapper for project data
-- `src/hooks/useGeneration.ts` — triggers generation, subscribes to store
-- `src/hooks/useStreamObject.ts` — consumes SSE stream, feeds generation store
+- `src/lib/stores/generation.store.ts` — `useGenerationStore` (test-case stream state)
+- `src/lib/stores/rate-limit.store.ts` — `useRateLimitStore`, `secondsUntilReset`
+- `src/lib/hooks/useStreamTestCases.ts` — SSE consumer for `/api/generate/test-cases`; writes the generation store; exports `{ generate, cancel }`
+- `src/lib/hooks/useStreamUXAudit.ts`, `useStreamPersonaFriction.ts`, `useStreamI18nAudit.ts` — per-feature SSE hooks holding LOCAL state (`status/result/partial/error/provider/model/estimatedTokens`), not stores
+- `src/lib/hooks/useStaleArtifact.ts` (prompt-version nudge), `useTokenEstimate.ts` (calls `/api/generate/estimate`)
+- (No `src/stores/`, `useProject.ts`, `useGeneration.ts`, or `useStreamObject.ts`.)
 
-## Generation Store interface
-
+## Generation store (actual)
 ```typescript
-interface GenerationState {
-  currentArtifact: Partial<TestSuiteOutput | UXReviewOutput | BugReport> | null;
-  status: 'idle' | 'streaming' | 'verifying' | 'complete' | 'partial' | 'error';
-  completedItems: number;
-  estimatedTotal: number;
-  errorMessage: string | null;
-
-  startGeneration: () => void;
-  handleStreamChunk: (partial: Record<string, unknown>) => void;
-  handleStreamComplete: () => void;
-  handleStreamError: (error: Error) => void;
-  handleVerification: (verified: Record<string, unknown>) => void;
-  resumeGeneration: () => void;
-  keepPartial: () => void;
-  reset: () => void;
-}
+status: 'idle' | 'starting' | 'streaming' | 'judging' | 'complete' | 'partial' | 'error'
+cases: TestCase[]         // final / kept cases
+streaming: TestCase[]     // live, unverified cases during the stream
+partial: boolean; resumeFrom: number | null
+meta: { provider, model, estimatedTokens } | null
+error: string | null; buffer: string; coverageSummary: string
+actions: start, setMeta, appendBuffer, setStreamingCases, setFinalCases(cases, coverageSummary?),
+         setPartial(fromIndex), setError, startJudge, complete, reset
 ```
+Persists only in memory — reloading the page empties it (the Export page depends on it; see export.md).
 
-## Rate Limit Store interface
+## Rate-limit store (actual)
+`status: idle|running|rate_limited|queued|error`, `queue: QueuedJob[]`, `retryAfter` (epoch ms), `totalQueued`, `totalRan`; actions `enqueue`, `dequeue`, `setStatus`, `setRetryAfter`, `clearRetry`, `reset`. Not the per-model queues/token-budget design in older docs.
+**Implementation status: nothing in `src/` calls it** — no component or hook reads or writes `useRateLimitStore`; the queue UI is not wired (see rate-limit.md).
 
-```typescript
-interface RateLimitState {
-  queues: Record<string, PendingRequest[]>;
-  cooldowns: Record<string, number>;  // model → ms timestamp when cooldown ends
-  tokenBudgets: Record<string, { used: number; limit: number; resetsAt: number }>;
-  activeProvider: Record<string, string>;  // task → provider name
-
-  enqueue: (model: string, request: PendingRequest) => void;
-  processNext: (model: string) => void;
-  recordUsage: (model: string, tokens: number) => void;
-  setActiveProvider: (task: string, provider: string) => void;
-  canSend: (model: string) => boolean;
-}
+## Streaming flow
 ```
-
-## Streaming flow (generation store lifecycle)
+generate() → store.start() [starting]
+  → SSE 'meta' → setMeta [streaming]
+  → SSE 'partial' → setStreamingCases(partial.test_cases)
+  → SSE 'done' → setFinalCases (server already ran Judge before 'done'); complete() [complete]
+Stream drops / cancel → setPartial(streaming.length + 1) [partial] → banner: Resume | Keep Partial
+  Resume → generate({ resumeFrom })   (prompt: "Continue from TC-00N")
+  Keep   → complete()
 ```
-User clicks "Generate"
-  → startGeneration() → status: 'streaming', skeleton cards appear
-  → handleStreamChunk() called per SSE chunk → completedItems increments
-  → handleStreamComplete() → status: 'verifying'
-  → Judge runs (generateObject, not streaming)
-  → handleVerification() → status: 'complete', is_verified set on cards
-  → artifact saved to generated_artifacts
-```
-
-## Partial stream recovery
-```
-Network drop mid-stream
-  → handleStreamError() → status: 'partial'
-  → Banner: "Generation interrupted — N of ~M test cases generated."
-  → [Resume] button → resumeGeneration() → re-trigger with "Continue from TC-{N+1}"
-  → [Keep Partial] → keepPartial() → saves artifact with status: 'partial'
-```
+The `judging` status exists in the store but the Judge runs server-side before the final `done`, so it is mostly transient.
 
 ## Patterns
-- Skeleton cards appear BEFORE any stream data — use `estimatedTotal` to render the right count
-- TanStack Query `queryKey: ['artifact', projectId, artifactType]` — invalidate on generation complete
-- Generation store resets when navigating to a different feature tab
+- Use `useGenerationStore.getState()` inside callbacks (hook has no deps) to avoid stale closures.
+- `resumeFrom` means “next TC number to generate”, hence the `+1`.
+- Skeleton rows appear while `status` is starting/streaming/judging.
 
 ## Gotchas
-- `currentArtifact` is a partial object during streaming — components must handle undefined fields
-- Never call `reset()` until the artifact is fully saved — risk of losing partial data
-- Rate limit store `cooldowns` stores timestamps not durations — compare to `Date.now()`
+- `streaming` cases may have undefined fields mid-stream.
+- `reset()` empties `cases`; call it only after data is persisted (the artifact is saved server-side on `done`).
+- `retryAfter` stores an epoch timestamp, not a duration.
+- Other features (UX audit, personas, i18n) do not share the generation store; navigating away loses their in-flight state, though results are saved as artifacts.
+
+## Do not
+- Add React Query without listing the dependency and asking first (RULE 4).
+- Move AI SDK calls into stores or components; use hooks that call route handlers.

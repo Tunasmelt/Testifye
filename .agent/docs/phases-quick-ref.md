@@ -1,98 +1,101 @@
 # Phases Quick Reference
-Last updated: 2026-05-09
+Last updated: 2026-11-08
 
-> Read PHASES.md for full task head prompts. This file is a rapid lookup table.
+> Rapid lookup. PHASES.md is canonical for task numbering, names, and head prompts — if this file disagrees, PHASES.md wins. Status below reflects the code as of the last-updated date.
 
-## Phase 1 — Foundation (Tasks 1.1–1.21)
-**Goal:** Scaffold, design system, auth, project CRUD, Test Case Generator, image pipeline, rate limit queue, landing page, Sidekick v0, theme switcher.
+Status key: Done · Partial · Not started
 
-| Task | Description | Key output |
+## Phase 1 — The Core Engine (Tasks 1.1–1.21) — COMPLETE
+**Goal:** Create project → upload screenshots → generate verified test cases → export.
+
+| Task | Name (PHASES.md) | Status |
 |---|---|---|
-| 1.1 | Project Scaffold | Next.js 15 app, dir structure, env.local |
-| 1.2 | Design System | app.css, marketing.css, animations.css, 14 UI components |
-| 1.3 | Supabase Schema | All tables, RLS, triggers, storage bucket |
-| 1.4 | Auth Pages | Login, Signup, OAuth callback route |
-| 1.5 | Auth Middleware | Protects /dashboard/*, redirects to /login |
-| 1.6 | Project CRUD + App Shell | AppShell, Sidebar (10 items), Topbar, Breadcrumb, OverviewPage |
-| 1.7 | Image Upload | AssetUploader, SHA256 dedup, pHash, compress, IDB |
-| 1.8 | AI Providers | providers.ts, MODEL_REGISTRY, FEATURE_MODEL_MAP |
-| 1.9 | Context Budget | context-budget.ts, semantic truncation |
-| 1.10 | Scout Stage | weaver.service.ts Scout, ScreenElementMap schema |
-| 1.11 | Generator Stage | streamObject wrapper, streaming UX in TestCasePage |
-| 1.12 | Judge Stage | generateObject verification, is_verified flag |
-| 1.13 | Rate Limit Queue | rate-limit.store.ts, Zustand queue |
-| 1.14 | Fallback Chain | generate-with-fallback.ts, stream-with-fallback.ts |
-| 1.15 | Export Engine Page | ExportPage with 6 format cards, bundle builder, Toggle switches |
-| 1.16 | Generation Store | generation.store.ts, partial stream recovery |
-| 1.17 | Manifest Snapshot | manifest_snapshot JSONB, TanStack Query invalidation |
-| 1.18 | Trigger Validation | SQL test: INSERT artifact → snapshot auto-updated |
-| 1.19 | Landing Page | 11 sections, pricing, about, MNav, MFooter, CountUp |
-| 1.20 | Sidekick v0 | SidekickPage (session-only), SimpleMarkdown, /api/generate/chat |
-| 1.21 | TweaksPanel | Theme switcher, data-theme, localStorage, flash prevention |
+| 1.1 | Project Scaffold | Done |
+| 1.2 | Design System | Done |
+| 1.3 | Supabase Setup | Done |
+| 1.4 | Auth Flow | Done |
+| 1.5 | Image Pipeline | Done |
+| 1.6 | Project CRUD + App Shell | Done |
+| 1.7 | Provider Registry | Done |
+| 1.8 | Scout Pipeline | Done |
+| 1.9 | Generator Pipeline | Done |
+| 1.10 | Judge Pipeline | Done |
+| 1.11 | Context Budget | Done |
+| 1.12 | System Prompts | Done |
+| 1.13 | Test Case UI | Done |
+| 1.14 | Partial Stream Recovery | Done |
+| 1.15 | Export Engine Page | Done |
+| 1.16 | Rate Limit Queue | Done (store exists; not wired to UI — see rate-limit.md) |
+| 1.17 | Landing Page | Done |
+| 1.18 | Manifest Trigger | Done |
+| 1.19 | Landing Page (full mockup) | Done |
+| 1.20 | Sidekick Chat (v1 Session) | Done |
+| 1.21 | TweaksPanel (Theme Switcher) | Done |
 
----
+## Phase 2 — Analysis & Richness (Tasks 2.1–2.11) — COMPLETE
+**Goal:** UX/UI Auditor, Bug Reports, role-based output, Gherkin export, Sidekick persistence.
 
-## Phase 2 — Analysis & Richness (Tasks 2.1–2.10)
-**Goal:** UX Auditor, Bug Reports, role-based output, Gherkin export, Sidekick DB persistence, dashboard analytics, Shadow Scout.
+| Task | Name | Status | Notes |
+|---|---|---|---|
+| 2.1 | UX/UI Auditor | Done | features/ux-audit.md |
+| 2.2 | Pre-AI Screen Metrics | Done | helpers exist; client does not yet send `screenMetricsSummary` |
+| 2.3 | Screenshot Labeling | Done | inline label edit (`PATCH /api/assets/[assetId]`) |
+| 2.4 | Dirty State Detection | Done | `is_dirty` set + banner; never cleared (see image-pipeline.md) |
+| 2.5 | Bug Report Formatter | Done | non-streaming |
+| 2.6 | Role-Based Output | Done | |
+| 2.7 | Gherkin Export | Done | deterministic string builder, not AI |
+| 2.8 | UX Score History | Done | |
+| 2.9 | Sidekick Chat v1 (Persistence) | Done | `chat_sessions` |
+| 2.10 | Data Privacy Toggle | Done | `projects.extended_providers_enabled` |
+| 2.11 | Shadow Scout | Done | `after()` on upload |
 
-| Task | Description |
-|---|---|
-| 2.1 | Shadow Scout (background scan post-upload via after()) |
-| 2.2 | UX/UI Auditor (screen metrics + heuristics) |
-| 2.3 | Dirty State System (is_dirty flag, pulsing UI, re-analyze prompt) |
-| 2.4 | Command Palette (cmdk library, ⌘K, global search) |
-| 2.5 | Bug Report Formatter (full schema with frequency, root_cause_hypothesis, labels) |
-| 2.6 | Role-Based Output (language adaptation per user_role) |
-| 2.7 | Gherkin Export (fast_format model, .feature file download) |
-| 2.8 | Dashboard Analytics (Recharts: coverage bar, UX trend line, gap pie) |
-| 2.9 | Sidekick Chat v1 (DB persistence via chat_sessions table) |
-| 2.10 | Data Privacy Toggle (projects.extended_providers_enabled) |
+## Phase 3 — Intelligence Layer (Tasks 3.1–3.8) — COMPLETE
+**Goal:** PDF/DOCX import, OCR, semantic linking, test data, CSV export, coverage analysis.
 
----
+| Task | Name | Status | Notes |
+|---|---|---|---|
+| 3.1 | Requirement Gap Finder | Done | |
+| 3.2 | Scanned PDF OCR | Done | tesseract.js fallback in `document.service.ts` |
+| 3.3 | Semantic Link Engine | Done | |
+| 3.4 | Synthetic Test Data | Done | model-only; faker not wired |
+| 3.5 | Full Export | Done | CSV + text formats for test cases only; Jira/Linear API not shipped |
+| 3.6 | Prompt Versioning | Done | `prompt-version.ts` |
+| 3.7 | Token Budget Estimator | Done | `/api/generate/estimate` |
+| 3.8 | Coverage Gap Analysis | Done | `CoverageGapAnalysis.tsx` |
 
-## Phase 3 — PRD Intelligence (Tasks 3.1–3.6)
-**Goal:** Gap Finder, Semantic Link, Test Data Generator, Jira/Linear integrations, CSV export.
+## Phase 4 — Power Features (Tasks 4.1–4.7) — IN PROGRESS
+**Goal:** Persona analysis, i18n audit, accessibility deep-dive, versioning, launch readiness.
 
-| Task | Description |
-|---|---|
-| 3.1 | Document Parser (pdfjs-dist, mammoth, Tesseract.js OCR) |
-| 3.2 | Requirement Gap Finder (7 gap types, confidence scores) |
-| 3.3 | Semantic Link Engine (traceability matrix, verified/missing/mismatch/untested) |
-| 3.4 | Synthetic Test Data Generator (Faker.js + GROQ field mapping) |
-| 3.5 | Jira & Linear Integration (API key input, push tickets) |
-| 3.6 | CSV Export (json2csv, downloadable from ExportPage) |
+| Task | Name | Status |
+|---|---|---|
+| 4.1 | Persona Friction Analysis | Done |
+| 4.2 | i18n / RTL Audit | Done |
+| 4.3 | Accessibility Deep-Dive | Not started |
+| 4.4 | Test Suite Versioning | Not started |
+| 4.5 | Exploratory Testing Ideas | Not started |
+| 4.6 | Launch Readiness Score | Done |
+| 4.7 | Project Templates | Not started |
 
----
+## Phase 5 — Collaboration & Scale (Tasks 5.1–5.7) — NOT STARTED
+**Goal:** Google OAuth, teams, comments, sharing, analytics, persistent chat.
 
-## Phase 4 — Intelligence & Depth (Tasks 4.1–4.4)
-**Goal:** Persona Friction, i18n Audit, Launch Readiness Score, public roadmap.
+| Task | Name | Status |
+|---|---|---|
+| 5.1 | Google OAuth | Not started (callback route exists, unused) |
+| 5.2 | Team Workspaces | Not started (open decision: Phase 1 vs 5 — CLAUDE.md) |
+| 5.3 | Comments & Annotations | Not started |
+| 5.4 | Shared Report Links | Not started |
+| 5.5 | Analytics Dashboard | Not started |
+| 5.6 | Activity Feed | Not started |
+| 5.7 | Sidekick Chat v2 | Not started |
 
-| Task | Description |
-|---|---|
-| 4.1 | Persona Friction Analysis (5 personas, drop_off_risk, friction_type) |
-| 4.2 | i18n / RTL Audit (readiness_score, rtl_risk_score, 6 category types) |
-| 4.3 | Launch Readiness Score (deterministic computation, 4-component composite) |
-| 4.4 | Public Roadmap Page (non-auth landing page section) |
+Not in PHASES.md (do not build as tasks): Command Palette, Public Roadmap Page, Public API / GitHub Actions integration.
 
----
-
-## Phase 5 — Scale & Collaboration (Tasks 5.1–5.4)
-**Goal:** Team workspaces, Sidekick v2 persistent memory, API, GitHub Actions integration.
-
-| Task | Description |
-|---|---|
-| 5.1 | Team Workspaces (org-level RLS, role-based access) |
-| 5.2 | Sidekick v2 (cross-session memory, cross-project patterns) |
-| 5.3 | Public API (API keys, rate limiting per key, webhook events) |
-| 5.4 | GitHub Actions Integration (post test results as PR comments) |
-
----
+Jira/Linear: Task 3.5 lists Jira/Linear integration; it is deferred pending the open OAuth-vs-API-key decision (CLAUDE.md). Only text exports shipped.
 
 ## Phase guard — which phase am I in?
+1. Is the task listed under the current phase in PHASES.md? → Proceed.
+2. Is it a later-phase feature? → Do NOT build it early.
+3. Does it depend on a later task? → Build the dependency first.
 
-Ask yourself:
-1. Is this task listed under the current phase? → Proceed
-2. Is this a Phase 2+ feature? → Do NOT build it in Phase 1
-3. Is it a Phase 1 task but depends on a later task? → Build the dependency first
-
-**The locked sequence within each phase matters.** Do not skip tasks or build out of order.
+Respect task order inside a phase; if this table and PHASES.md ever differ, trust PHASES.md.

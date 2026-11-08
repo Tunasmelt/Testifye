@@ -34,7 +34,7 @@ You are building "Tesifye", an AI-native QA platform. This is the initial projec
 - ARCHITECTURE.md — for tech stack, directory structure, and coding conventions
 - SCHEMA.md — for design tokens and CSS custom properties
 
-**Task:** Initialize the Next.js 15 project with App Router and TypeScript.
+**Task:** Initialize the Next.js 16 project with App Router and TypeScript. (project is on Next 16.2.6; decision 2026-11-08)
 
 **Steps:**
 1. Run `npx -y create-next-app@latest ./` with these options:
@@ -165,7 +165,7 @@ You are setting up the Supabase backend for "Tesifye", an AI-native QA platform.
 - All indexes from SCHEMA.md
 - The handle_new_artifact() trigger function
 - The on_artifact_insert trigger
-- Storage bucket: testifye-assets (private)
+- Storage bucket: testifye-assets (private) *(Implementation status: the bucket actually used is `project-assets`.)*
 - Storage policies: Users can upload/read their own {user_id}/ prefix
 
 **Also create:**
@@ -229,8 +229,8 @@ You are implementing authentication for "Tesifye" using Supabase Auth.
 
 **Design:**
 - Auth pages use the Premium Glassmorphic aesthetic
-- Dark background (#0A0A0B), centered card
-- Electric Violet (#7C3AED) primary button
+- Dark background (`--bg-0` #07070A, per ARCHITECTURE.md "Visual Identity"), centered card
+- Electric Violet (#8B5CF6) primary button
 - Inter font
 
 **Convention:**
@@ -295,7 +295,7 @@ File selected →
   1. computeSHA256() → check DB for existing hash → skip if found
   2. computePerceptualHash() → check DB for Hamming distance < 10 → warn if found
   3. compressImage() → WebP, ≤150KB
-  4. cacheToIDB() → store locally with {project_id}:{hash} key
+  4. cacheToIDB() → store locally with {project_id}:{hash} key *(Implementation status: the IDB key is `tf:asset:{sha256}`, see `asset.service.ts`.)*
   5. promoteToSupabase() → upload to storage + insert project_assets row
 ```
 
@@ -432,6 +432,7 @@ reasoning:  groq:llama-3.3-70b → google:gemini-2.5-flash
 ux_review:  groq:llama-4-maverick → google:gemini-2.5-flash
 fast:       groq:llama-3.1-8b → google:gemini-2.5-flash
 ```
+*(Implementation status: the Google fallback model actually used is `gemini-2.0-flash` for every model key.)*
 
 **Convention:**
 - NEVER import AI SDK directly in route handlers — always go through these utilities
@@ -527,7 +528,7 @@ You are implementing the Generator stage of Tesifye's AI pipeline.
 
 5. `src/app/api/generate/test-cases/route.ts` — Thin route handler
    - Auth check
-   - Parse body (project_id, focus_areas)
+   - Parse body (project_id, focus_areas) *(Implementation status: the request body is camelCase `projectId` / `focusAreas`.)*
    - Call weaver.service.runGenerator()
    - Forward SSE stream to client
 
@@ -751,7 +752,7 @@ Read: ARCHITECTURE.md → "Visual Identity" for design tokens.
    - `toCSV(artifact): string` — using json2csv (install: npm install json2csv)
    - `toBundleBlob(artifacts: Record<string, unknown>, formats: string[]): Blob` — ZIP of selected artifacts
 
-2. `src/components/features/ExportPage.tsx` — Full export page
+2. `src/components/features/ExportPage.tsx` — Full export page *(Implementation status: actual path is `src/app/dashboard/[projectId]/export/ExportClient.tsx`.)*
    - 6 format cards in a 3-col grid: Markdown, CSV, JSON, Gherkin (.feature), Jira Markup, Linear
      - Each card: icon, format name, description, individual Download button
    - "What's included" section: toggle switches per artifact type
@@ -904,7 +905,7 @@ Read: SCOPE.md → "Product Identity" for tagline and positioning.
 
 ---
 
-## Task 1.20 — Sidekick Chat (v1 Session)
+## Task 1.20 — Sidekick Chat (v0 Session)
 
 ### Head Prompt
 ```
@@ -917,7 +918,7 @@ Read: ARCHITECTURE.md → "Streaming-First Convention"
 **Context:** Sidekick is a dedicated sidebar nav item — a FULL PAGE (not a slide-in panel). It is separate from all feature pages.
 
 **Files to create:**
-1. `src/components/features/SidekickPage.tsx` — Full chat page
+1. `src/components/features/SidekickPage.tsx` — Full chat page *(Implementation status: actual path is `src/components/sidekick/SidekickChat.tsx`.)*
    - Layout: Messages area (flex-1, scrollable) + sticky input bar at bottom
    - Bubble types: user (right-aligned, --accent-strong border) + assistant (left, .tf-card)
    - Typing indicator: 3-dot bounce animation while AI is responding
@@ -1139,7 +1140,7 @@ Install: npm install recharts
 ```
 Upgrade Sidekick Chat to persist messages to the database (Phase 2 version).
 
-Read: SCOPE.md → "Feature 6: Sidekick Chat" → v1 vs v2 comparison.
+Read: SCOPE.md → "Feature 6: Sidekick Chat" → "Version Progression" table (v1 = this task).
 Read: SCHEMA.md → "chat_sessions" table.
 
 **Context:** The Sidekick page UI was built in Task 1.20. This task adds DB persistence.
@@ -1151,8 +1152,10 @@ Upgrade:
 - On page load: fetch messages from chat_sessions for the current project
 - Add "Clear Chat" button that sets messages = []
 - Chat now survives page refresh (DB-persisted)
-- Still no cross-project memory (Phase 5)
+- Still no cross-session or cross-project memory (Task 5.7, Phase 5)
 ```
+
+Status: Done (see HANDOFF.md). `/api/chat/[projectId]` persists to `chat_sessions` (messages capped at the last 200).
 
 ## Task 2.10 — Data Privacy Toggle
 ```
@@ -1162,7 +1165,7 @@ Read: SCOPE.md → "Cross-Feature: Data Privacy Controls"
 
 Create toggle in project settings:
 - "Private Mode" (default): GROQ only
-- "Extended Mode": GROQ + Google AI + Cerebras
+- "Extended Mode": GROQ + Google AI (Gemini) — Decision 2026-11-08: Cerebras dropped
 - Show disclosure about Google's training policy
 - Stored in projects.extended_providers_enabled
 - generateWithFallback respects this setting
@@ -1241,11 +1244,15 @@ Use @faker-js/faker for data factory + GROQ for intelligent field mapping.
 Output JSON/CSV of test data matching the app's form fields.
 ```
 
+Status: Done (TestDataClient, `/api/generate/test-data`, HANDOFF.md 3.4). **Implementation status:** `@faker-js/faker` is in package.json but not imported anywhere (verified 2026-11-08; decision pending: wire in or remove); generation is currently model-only (`generateTestData` in `weaver.service.ts`). The faker factory is not yet wired (HANDOFF known gap #13).
+
 ## Task 3.5 — Full Export
 ```
 Add CSV export (json2csv), Jira integration, Linear integration.
 Read: SCOPE.md → "Cross-Feature: Export System"
 ```
+
+Status: Partially done. **Implementation status:** `src/lib/services/export.service.ts` provides Markdown, JSON, Gherkin, CSV, plus Jira (wiki markup `.txt`) and Linear (Markdown `.md`) as downloadable/copyable text only. There is no Jira or Linear API/OAuth integration. CSV is a hand-written serializer (`json2csv` is in package.json but not imported anywhere, verified 2026-11-08; decision pending: wire in or remove; HANDOFF.md says "CSV via json2csv", which does not match the code). Real Jira/Linear API integration remains open (also an open decision: OAuth vs API key).
 
 ## Task 3.6 — Prompt Versioning
 ```
@@ -1292,11 +1299,15 @@ Read: SCOPE.md → "Feature 8: Persona Friction Analysis"
 Generate per-persona UX friction reports with audience-specific prompting.
 ```
 
+Status: Done (SSE route `/api/generate/persona-friction`, 5 personas; HANDOFF.md).
+
 ## Task 4.2 — i18n / RTL Audit
 ```
 Read: SCOPE.md → "Feature 9: i18n / RTL Audit"
 Check for truncation risks, RTL layout issues, hardcoded strings.
 ```
+
+Status: Done (SSE route `/api/generate/i18n-audit`, locale chip input; HANDOFF.md).
 
 ## Task 4.3 — Accessibility Deep-Dive
 ```
@@ -1304,17 +1315,23 @@ WCAG 2.1 AA comprehensive audit beyond basic contrast checks.
 Check: alt text, keyboard nav, focus order, screen reader compatibility.
 ```
 
+Status: Not started.
+
 ## Task 4.4 — Test Suite Versioning
 ```
 Diff between test suite runs. Show added/removed/modified test cases.
 Visual: side-by-side comparison with highlighting.
 ```
 
+Status: Not started.
+
 ## Task 4.5 — Exploratory Testing Ideas
 ```
 AI-generated creative testing scenarios based on project context.
 "What if a user tries to..." style suggestions.
 ```
+
+Status: Not started.
 
 ## Task 4.6 — Launch Readiness Score
 ```
@@ -1323,11 +1340,15 @@ Composite score from: test coverage, UX score, gaps, open bugs.
 Visual dashboard with blocking issues highlighted.
 ```
 
+Status: Done (non-AI route `/api/generate/launch-readiness`; weights 30/30/20/20, see SCOPE.md Feature 10). Known limitation: only the most recent `bug_report` artifact is counted because of the `is_latest` pattern (follow-up).
+
 ## Task 4.7 — Project Templates
 ```
 Pre-configured project templates: E-commerce, SaaS, FinTech, Social.
 Each template pre-fills description, scope, focus areas, and persona defaults.
 ```
+
+Status: Not started.
 
 ---
 
@@ -1343,7 +1364,7 @@ You are continuing Tesifye development. Phases 1-4 are complete.
 
 Read all 4 markdown files before starting any Phase 5 work.
 
-Phase 5 adds: Google OAuth, team workspaces, comments, sharing, analytics dashboard, activity feed, persistent Sidekick chat.
+Phase 5 adds: Google OAuth, team workspaces, comments, sharing, analytics dashboard, activity feed, cross-session / cross-project Sidekick memory (single-session persistence already shipped in Task 2.9).
 ```
 
 ## Task 5.1 — Google OAuth
@@ -1389,11 +1410,15 @@ Real-time via Supabase realtime subscriptions.
 
 ## Task 5.7 — Sidekick Chat v2
 ```
-Read: SCOPE.md → "Feature 6" → v1 vs v2 comparison.
-Persist chat to chat_sessions table.
+Read: SCOPE.md → "Feature 6" → "Version Progression" table (v2 = this task).
+Note: DB persistence to chat_sessions was already delivered in Task 2.9 (Phase 2); do not rebuild it.
+Add on top of it:
 Cross-session memory: chat knows what was discussed last time.
 Cross-artifact awareness: "Compare today's UX score with last week's"
+Cross-project comparison.
 ```
+
+Status: Not started.
 
 ---
 

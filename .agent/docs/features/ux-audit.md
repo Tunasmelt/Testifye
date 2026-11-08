@@ -1,79 +1,43 @@
 # Feature 2: UX/UI Auditor
-Phase: 2 | Pipeline: Scout → Generator (ux_narrative model) → Judge
+Phase: 2 (Tasks 2.1, 2.2, 2.8) | Status: done (Task 2.2 metrics only partially wired — see Gotchas) | Pipeline: Scout screen maps → streaming Generator (`ux_narrative`); no Judge run
+Last updated: 2026-11-08
 
-## What it does
-Analyzes screenshots against Nielsen's 10 Heuristics + WCAG foundations. Combines deterministic Canvas-based metrics (contrast, density) with AI narrative. Produces a scored report with per-heuristic breakdown.
+## Overview
+Analyzes analyzed screens against Nielsen's 10 heuristics + WCAG basics and streams a scored report with findings, accessibility flags, strengths, and an audit-score history chart.
 
 ## Key files
-- `src/app/api/generate/ux-audit/route.ts` — Route handler
-- `src/lib/schemas/ux-review.ts` — UXReviewOutputSchema (source of truth: SCHEMA.md)
-- `src/components/features/UXAuditPage.tsx` — feature page
-- `src/components/generation/UXFindingCard.tsx` — single finding with effort badge
-- `src/lib/utils/screen-metrics.ts` — Canvas-based metrics (contrast, density, whitespace_ratio)
+- `src/app/dashboard/[projectId]/ux-audit/page.tsx` + `UXAuditClient.tsx` — focus chips, findings list (severity + “Quick wins only” effort filter), stale nudge, `ScoreHistoryChart` (Recharts)
+- `src/app/api/generate/ux-audit/route.ts` — SSE route; persists artifact inline
+- `src/lib/hooks/useStreamUXAudit.ts` — SSE hook (accepts optional `screenMetricsSummary`)
+- `src/lib/hooks/useStaleArtifact.ts` + `src/app/api/artifacts/stale/route.ts` — prompt-version staleness
+- `src/app/api/artifacts/ux-history/[projectId]/route.ts` — last 20 `ux_review` artifacts, chronological, for the chart
+- `src/lib/ai/weaver.service.ts` — `streamUXAudit`; `src/lib/ai/prompts/ux-auditor.ts` — `buildUXAuditorPrompt`
+- `src/lib/schemas/ux-review.ts` — `UXReviewOutputSchema`
+- `src/lib/utils/screen-metrics.ts` — `extractDominantColors`, `computeContrastRatios`, `computeElementDensity`, `computeScreenMetrics`, `formatScreenMetricsForPrompt`
+- (No `src/components/features/` or `src/components/generation/` files exist.)
 
-## Inputs
-| Input | Required |
-|---|---|
-| Screenshots (project_assets, up to 10) | At least 1 |
-| Navigation flow description | No (optional free text) |
-| app_type | Yes (from projects) |
-| Audit focus | No (defaults to Full Audit) |
+## Request / SSE
+- Body: `{ projectId, auditFocus?, screenMetricsSummary? }`. 422 when no analyzed screens. Events `meta` → `partial` → `done` | `error`. Saved as `ux_review`, `is_verified: false`.
+- Audit focus chips (7): Full Audit, Onboarding & First-Time UX, Checkout & Conversion Flow, Forms & Input Validation, Error Handling & Recovery, Information Architecture, Mobile Usability.
 
-## Audit focus options
-- Full Audit (all heuristics)
-- Onboarding & First-Time UX
-- Checkout & Conversion Flow
-- Forms & Input Validation
-- Error Handling & Recovery
-- Information Architecture
-- Mobile Usability
+## Output (src/lib/schemas/ux-review.ts)
+- `overall_score` 0–100, `grade` (string: A+, A, B+, B, C, D, F)
+- `findings[]`: `heuristic_number` (1–10), `heuristic_name`, `severity` **critical | major | minor | enhancement**, `effort` quick-win | moderate | significant, `element`, `screen`, `description`, `suggestion`, `screenshot_ref?`, `is_verified`
+- `score_breakdown`: record of per-heuristic scores 0–10
+- `accessibility_flags[]`: `type` (contrast | touch_target | alt_text | focus_order | keyboard_nav | aria_label), `criterion`, `element`, `screen`, `detail`
+- `strengths[]`
+- `screen_metrics?`: `dominant_colors?`, `contrast_ratios? [{pair, ratio, passes_aa}]`, `whitespace_ratio?`, `element_density?`
 
-## Pre-AI screen metrics (deterministic, via Canvas)
-Run BEFORE calling the AI. Inject as facts into Generator prompt:
-- **dominant_colors** — via `extract-colors` package
-- **wcag_contrast_ratios** — via `wcag-contrast-utils` on primary text/bg pairs
-- **information_density** — element count per viewport from ScreenElementMap
-- **whitespace_ratio** — whitespace px / total viewport px
-
-## Output fields (from SCHEMA.md UXReviewOutputSchema)
-- `overall_score` — 0–100 weighted average
-- `grade` — A / B / C / D / F
-- `score_breakdown` — per-heuristic score (0–10) for all 10 Nielsen heuristics
-- `findings[]` — each has:
-  - `heuristic` — H1–H10
-  - `severity` — critical | major | minor | suggestion (lowercase)
-  - `effort` — quick-win | moderate | significant
-  - `screen` — which screenshot
-  - `element` — UI element label
-  - `description`, `suggestion`, `screenshot_ref`
-- `accessibility_flags[]` — A11yFlagSchema items (wcag_criterion, issue, fix_suggestion)
-- `strengths[]` — what the app does well
-- `screen_metrics` — the deterministic Canvas data
-
-## Nielsen heuristics map (H1–H10)
-| # | Name | Tesifye checks |
-|---|---|---|
-| H1 | Visibility of system status | Loading indicators, progress bars, feedback |
-| H2 | Match system & real world | Familiar icons, natural language |
-| H3 | User control & freedom | Back buttons, undo, cancel |
-| H4 | Consistency & standards | Button styles, nav patterns |
-| H5 | Error prevention | Confirmation dialogs, input constraints |
-| H6 | Recognition over recall | Visible options, breadcrumbs |
-| H7 | Flexibility & efficiency | Shortcuts, bulk actions |
-| H8 | Aesthetic & minimalist design | Visual hierarchy, whitespace |
-| H9 | Error recovery | Helpful messages, retry |
-| H10 | Help & documentation | Tooltips, help links |
-
-## Edge cases
-| Scenario | Handling |
-|---|---|
-| Only 1 screenshot | Audit single screen; note: "Limited to single-screen analysis" |
-| Screenshots in wrong order | User can drag-and-drop reorder before generating |
-| Very similar screenshots | pHash detects; prompt: "Similar images detected — proceed anyway?" |
-| No interactive elements found | Flag as potential issue (H1, H8) |
+## Behaviors
+- **Single screen:** server detects `screenMaps.length === 1` and adds a prompt note: audit is limited to single-screen analysis and the model must say so in `summary_recommendation`.
+- **Stale nudge:** banner “generated with an older prompt version — Re-run” when `/api/artifacts/stale` reports `stale && exists` (prompt-version check, Task 3.6; not the Task 2.4 dirty-state flag).
+- **Score history (Task 2.8):** line chart of up to 20 past audits; with one audit it shows only “Score history will appear after your second audit”.
+- **Heuristics H1–H10:** Visibility of status, Match real world, User control, Consistency, Error prevention, Recognition over recall, Flexibility, Aesthetic/minimalist, Error recovery, Help/documentation.
 
 ## Gotchas
-- `effort` field is critical for dashboard filtering (quick-win vs significant) — don't omit
-- `whitespace_ratio` uses viewport dimensions from ScreenElementMap — must run Scout first
-- wcag-contrast-utils and extract-colors are Phase 2 deps — install: `npm install wcag-contrast-utils extract-colors`
-- Judge verifies `overall_score` is consistent with `score_breakdown` values — add this check in prompts
+- Pre-AI metrics: helpers exist in `screen-metrics.ts` and the route/hook accept `screenMetricsSummary`, but `UXAuditClient` only sends `{ projectId, auditFocus }` — no caller computes or injects metrics today, so `screen_metrics` is whatever the model emits. (Not wired; Task 2.2 is only partly effective.)
+- Severity enum uses `enhancement`, not `suggestion`.
+- No Judge stage runs for UX audit despite `FEATURE_MODEL_MAP.ux_review.judge`; findings are `is_verified: false`. Do not claim `overall_score`/`score_breakdown` consistency is verified.
+- No drag-and-drop screenshot reorder exists in the code.
+- Launch Readiness reads `overall_score` and critical `findings` from this artifact.
+- `extract-colors` and `wcag-contrast-utils` are already installed.

@@ -1,6 +1,10 @@
-# Tesifye — Final Implementation Plan (Locked v1.2)
+> **⚠️ SUPERSEDED — HISTORICAL DOCUMENT.** This is the v1.2 planning doc and is **no longer authoritative**. The canonical specs are `ARCHITECTURE.md`, `SCOPE.md`, `SCHEMA.md` and `PHASES.md`. Where this file disagrees with them, they win.
+>
+> Known outdated items in this file: accent colour `#7C3AED` (now `#8B5CF6`); `tester_role` (now `user_role`); artifact type `test_cases` (now `test_suite`); artifact column `output` (now `content`); table / CSS-token names; single-file feature schemas (now split under `src/lib/schemas/`). This list is not exhaustive.
 
-> **Status:** Architecture finalized. Ready for scaffolding.
+# Tesifye — Final Implementation Plan (v1.2, superseded)
+
+> **Status:** SUPERSEDED — historical planning reference only. Originally "Architecture finalized. Ready for scaffolding."
 > **Stack:** Next.js 15 (App Router) · Supabase (Auth + Postgres + Storage) · TypeScript · GROQ + Google AI + Cerebras · Vercel AI SDK
 > **Constraint:** No standalone backend. All server logic lives in Next.js Route Handlers (serverless).
 > **Aesthetic:** Premium Glassmorphic — Deep Obsidian (#0D0D0D) + Frost White (#F2F2F2) + Electric Violet (#7C3AED)

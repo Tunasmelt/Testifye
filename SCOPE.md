@@ -88,15 +88,22 @@ Each test case has:
 | Rate limit during streaming | Save partial output, offer Resume / Keep Partial |
 | All providers exhausted | Queue with countdown timer, serve cached if available |
 
+**Implementation status (known gaps; see HANDOFF.md #10 for the cached badge, #12 for the countdown, and Known issues section (b) for providers):**
+- "Cached result" badge for duplicate generations: not implemented (no cached-artifact serving or badge in the test-case flow; only Scout maps are cached).
+- Countdown timer + cached artifact when all providers are exhausted: not implemented. `rate-limit.store.ts` holds `retryAfter`/`secondsUntilReset`, but nothing renders a countdown or serves a cached artifact. Partial-stream recovery (Resume / Keep Partial) is implemented.
+- Decision 2026-11-08: Cerebras is dropped. The provider chain is GROQ (primary) -> Google AI Studio / Gemini (fallback, Extended mode only), which is what `src/lib/ai/providers.ts` wires. "All providers exhausted" therefore means GROQ and (if opted in) Gemini.
+
 ### Post-Processing
 - Levenshtein / Jaccard similarity to flag semantically duplicate test cases
 - Group by category, sort by priority within groups
+
+**Implementation status:** the Levenshtein / Jaccard similarity step is not implemented (no such code in `src/`; HANDOFF.md #11).
 
 ### Export Formats (Phase 1: MD/JSON, Phase 2+: CSV/Gherkin/Jira)
 ```
 Markdown (.md)  →  Copy to clipboard
 JSON (.json)    →  Download
-Gherkin (.feature) → Phase 2 via 8B model formatting
+Gherkin (.feature) → deterministic template (`toGherkin` in `src/lib/services/export.service.ts`), no model call
 CSV (.csv)      →  Phase 3
 Jira / Linear   →  Phase 3 API integration
 ```
@@ -163,7 +170,7 @@ These metrics are injected into the Generator prompt as facts, not AI opinions.
 | Scenario | Handling |
 |---|---|
 | Only 1 screenshot | Audit single screen, note: "Limited to single-screen analysis" |
-| Screenshots in wrong order | User can reorder via drag-drop |
+| Screenshots in wrong order | User can reorder via drag-drop (**Implementation status:** not implemented; no reorder UI in the UX Audit flow, known gap #7) |
 | Very similar screenshots | pHash detects, prompt: "Similar images detected" |
 | No interactive elements found | Flag as potential issue itself |
 
@@ -186,17 +193,25 @@ User describes a bug in plain language → AI formats it into a structured bug r
 | Feature area | Dropdown (from project scope) | No |
 
 ### Output Structure
-- `bug_id`: Auto-generated (BUG-001)
+Source of truth: `src/lib/schemas/bug-report.ts` (`BugReportSchema`).
+- `bug_id`: Auto-generated, renumbered server-side from `bugIndex` (BUG-001)
 - `title`: One-line summary
-- `severity`: Blocker / Critical / Major / Minor / Trivial
-- `priority`: P0 / P1 / P2 / P3
-- `environment`: OS, browser, screen size (inferred or provided)
-- `steps_to_reproduce`: Numbered steps
+- `severity`: `blocker` / `critical` / `major` / `minor` / `trivial`
+- `priority`: `P0` / `P1` / `P2` / `P3` / `P4`
+- `component`: App area, e.g. Checkout, Auth, Search
+- `environment`: `{ platform, os, browser, app_version, screen_size? }` (inferred or provided)
+- `steps_to_reproduce`: Array of plain-string steps
 - `expected_result`: What should happen
 - `actual_result`: What actually happens
-- `possible_cause`: AI's inference
+- `frequency`: `always` / `often` / `sometimes` / `rarely` / `once`
+- `root_cause_hypothesis`: AI's inferred probable root cause
 - `suggested_fix`: AI's suggestion
-- `screenshot_refs`: Attached screenshots
+- `labels`: Searchable tags (default `[]`)
+- `screenshot_refs`: Screenshot references (default `[]`)
+
+**Transport:** non-streaming request/response. `POST /api/generate/bug-report` returns `{ report, provider, model }` from a single generate call (`generateBugReport`); it is not SSE. Each report is persisted as a `bug_report` artifact (the previous row is flipped to `is_latest = false`).
+
+**Implementation status:** Screenshot attachment is not implemented (no upload input in the Bug Reports UI; `screenshot_refs` exists only in the schema). The "Feature area" input is a free-text `Component` field in an optional-details section, not a dropdown populated from project scope. Known gaps #8 and #9.
 
 ---
 
@@ -240,10 +255,16 @@ async function runOCR(pages: Blob[]): Promise<string> {
 ```
 
 ### Output Structure
-- `covered_requirements`: Requirements found in both PRD and UI
-- `missing_from_ui`: In PRD but NOT visible in screenshots
-- `undocumented_features`: In UI but NOT in PRD
-- `ambiguous_requirements`: PRD text too vague to verify
+Source of truth: `src/lib/schemas/gap-analysis.ts` (`GapAnalysisOutputSchema`). The output is a flat list of gap findings; there is no `covered_requirements` list.
+- `findings`: Array of `{ id, type, severity, location, description, suggestion }`
+  - `id`: `GAP-01`, `GAP-02`, ...
+  - `type` (7 values): `contradiction` / `missing_flow` / `ambiguity` / `untestable` / `undefined_error_state` / `missing_from_ui` / `undocumented_feature`
+  - `severity`: `critical` / `high` / `medium` / `low`
+  - `location`: PRD section reference, e.g. `§2.4`
+- `requirements_count`: Total requirements parsed from the PRD
+- `summary`: Counts per type: `contradictions`, `missing_flows`, `ambiguities`, `untestable`, `undefined_error_states`, `missing_from_ui`, `undocumented_features`
+
+"Missing from UI" and "undocumented features" are now two of the seven `type` values; "ambiguous requirements" maps to `ambiguity`.
 
 ---
 
@@ -256,14 +277,22 @@ async function runOCR(pages: Blob[]): Promise<string> {
 Maps PRD sections to specific UI screens, creating a bidirectional traceability matrix.
 
 ### Output Structure
-- `links`: Array of `{ prd_section, prd_text, screen_label, element_labels, confidence, status }`
-- Status: `linked` | `unverified` | `missing_ui` | `missing_prd`
+Source of truth: `src/lib/schemas/semantic-link.ts` (`SemanticLinkOutputSchema`).
+- `links`: Array of `{ req, loc, element, screen, status, confidence, note? }`
+  - `req`: Requirement text from the PRD
+  - `loc`: PRD section reference, e.g. `§2.1`
+  - `element`: Matched UI element label (`null` if missing)
+  - `screen`: Screen where the element was found (`null` if missing)
+  - `status`: `verified` | `missing` | `mismatch` | `untested`
+  - `confidence`: 0-1 match confidence
+  - `note`: Optional explanation for `mismatch` / `untested`
+- `summary`: `{ verified, missing, mismatch, untested }` counts
 
 ---
 
 ## Feature 6: Sidekick Chat
 
-**Phase:** 2 (v1: session-only) → Phase 5 (v2: persistent)
+**Phase:** 1 (v0: session-only, Task 1.20) → Phase 2 (v1: DB-persisted per project, Task 2.9) → Phase 5 (v2: cross-session / cross-project memory, Task 5.7)
 
 ### What It Does
 Context-aware chat that knows the project. Can answer: "What test cases don't cover the payment flow?" or "Why did the UX score drop?"
@@ -275,13 +304,15 @@ Chat prompt includes compressed project context (via semantic truncation):
 - Latest UX score
 - Project description and scope
 
-### v1 vs v2
-| Aspect | v1 (Phase 2) | v2 (Phase 5) |
-|---|---|---|
-| Memory | Session only (cleared on refresh) | DB-persisted, cross-session |
-| Context | Current project only | Cross-project comparison |
-| Model | reasoning_large | reasoning_large |
-| Streaming | Yes | Yes |
+### Version Progression
+| Aspect | v0 (Phase 1, Task 1.20) | v1 (Phase 2, Task 2.9) | v2 (Phase 5, Task 5.7) |
+|---|---|---|---|
+| Memory | Session only (cleared on refresh) | DB-persisted per project in `chat_sessions` (survives refresh; "Clear Chat" resets) | Cross-session memory ("what we discussed last time") |
+| Context | Current project only | Current project only | Cross-project / cross-artifact comparison |
+| Model | reasoning_large | reasoning_large | reasoning_large |
+| Streaming | Yes | Yes | Yes |
+
+**Implementation status:** v0 and v1 are implemented. `/api/chat/[projectId]` reads/upserts/deletes the `chat_sessions` row (messages capped at the last 200); `POST /api/generate/chat` streams the reply via SSE. v2 (Task 5.7) is not started.
 
 ---
 
@@ -295,6 +326,8 @@ Generates realistic test data based on project context using `@faker-js/faker` a
 
 ### Output
 JSON/CSV of test data, structured per the app's form fields (inferred from ScreenElementMaps).
+
+**Implementation status:** `@faker-js/faker` is in `package.json` but is not imported anywhere (verified 2026-11-08: referenced only in `package.json`; decision pending: wire in or remove). Generation is currently model-only (`generateTestData` in `weaver.service.ts`); the faker-as-factory design is not yet wired (known gap #13).
 
 ---
 
@@ -316,6 +349,15 @@ Analyzes UX from the perspective of different user personas (Gen Z, Boomer, powe
 ```
 
 ### Output: Per-persona friction report with specific UX issues and severity.
+Source of truth: `src/lib/schemas/persona-friction.ts` (`PersonaFrictionOutputSchema`). Streamed via SSE (`POST /api/generate/persona-friction`).
+- `personas`: Array of:
+  - `persona_id`, `persona_name`
+  - `empathy_statement`: One-line empathy summary for this persona
+  - `ux_score`: 0-100, **higher = better** UX for this persona
+  - `drop_off_risk`: `high` / `medium` / `low`
+  - `friction_items`: Array of `{ screen, element, friction_type, severity, description, suggestion }`
+    - `friction_type`: `cognitive_load` / `trust_issue` / `missing_affordance` / `accessibility` / `confusion` / `visual_hierarchy`
+    - `severity`: `blocking` / `frustrating` / `annoying` / `minor`
 
 ---
 
@@ -327,6 +369,19 @@ Analyzes UX from the perspective of different user personas (Gen Z, Boomer, powe
 ### What It Does
 Checks UI for internationalization readiness: truncated text risks, RTL layout issues, hardcoded strings, date/number format assumptions.
 
+### Output Structure
+Source of truth: `src/lib/schemas/i18n-audit.ts` (`I18nAuditOutputSchema`). Streamed via SSE (`POST /api/generate/i18n-audit`); the UI takes a locale chip input.
+- `readiness_score`: 0-100 overall i18n readiness
+- `readiness_label`: Free-form string, e.g. "Partially Ready", "Production Ready"
+- `recommended_locales`: Suggested priority test locales
+- `findings`: Array of `{ category, severity, screen, element, detail, locales }`
+  - `category`: `text_expansion` / `rtl` / `date_format` / `currency` / `number_format` / `cultural_assumption`
+  - `severity`: `critical` / `major` / `minor`
+  - `locales`: Affected locale codes, e.g. `["ar-SA", "de-DE"]`
+- `summary`: `{ critical, major, minor }` counts
+
+Note: "hardcoded strings" has no dedicated `category` value in the current schema.
+
 ---
 
 ## Feature 10: Launch Readiness Score
@@ -337,7 +392,23 @@ Checks UI for internationalization readiness: truncated text risks, RTL layout i
 ### What It Does
 Composite score combining: test coverage %, UX audit score, requirement gap count, open bugs.
 
-### Output
+**Implementation:** No AI call. `POST /api/generate/launch-readiness` (body `{ projectId }`, max 30s) authenticates, checks project ownership and calls `loadAndComputeLaunchReadiness` (`src/lib/services/launch-readiness.service.ts`), a pure computation over the `is_latest = true` rows of `test_suite`, `ux_review`, `gap_analysis` plus ALL complete `bug_report` rows. Type-checked. vitest approved 2026-11-08; unit tests for the pure scoring function live at `src/lib/services/launch-readiness.service.test.ts` (10 passing tests; run `npm test`). Shape: `src/lib/schemas/launch-readiness.ts`.
+
+| Dimension (key) | Weight | 0-100 score |
+|---|---|---|
+| `test_coverage` | 30% | `min(testCaseCount, 50)/50 * 50` + `min(distinctCategories, 6)/6 * 30` + judge-verified ratio `* 20` (per-case `is_verified`); 0 if no suite. `coverage_score` is no longer used |
+| `ux_score` | 30% | `overall_score` of the latest UX review; 0 if not audited |
+| `gap_count` | 20% | `100 - 20 * critical - 5 * non-critical`, floored at 0; 100 if no gap analysis has been run |
+| `bug_severity` | 20% | `100 - sum(per-bug penalty)` over all filed bug reports, floored at 0 (blocker 40, critical 30, major 15, minor 5, trivial 2); 100 if none |
+
+- `overall_score`: rounded weighted sum. `readiness_label`: `Ready` (>= 80), `Needs Attention` (>= 60), `Not Ready` (>= 40), `Critical Issues` (< 40).
+- Each dimension carries `{ score, label, detail }` (labels such as "Good", "Needs work", "Clean", "No blockers").
+- `blocking_issues`: Array of `{ type, source, description, severity }`, `type` in `critical_bug` / `ux_issue` / `missing_requirement` / `a11y_blocker` (`a11y_blocker` is in the schema but not currently emitted). Sources: up to 3 critical UX findings, up to 3 critical gaps, and up to 5 blocker/critical bug reports. UX sources read `Heuristic {heuristic_number} — {heuristic_name}`.
+- `computed_at`: ISO timestamp.
+
+**Note (fixed 2026-11-08):** all complete bug reports are now counted, not just the latest. Bugs have no open/closed status field, so "open bugs" means every filed bug report. Still not implemented: the "show only after 2 artifact types exist" gate; `a11y_blocker` is never emitted.
+
+### Illustrative Output (original concept; actual output is the JSON shape above)
 ```
 Overall: 72/100 — ⚠️ Not Ready for Launch
   ├─ Test Coverage:     85% ✅
@@ -362,10 +433,12 @@ Overall: 72/100 — ⚠️ Not Ready for Launch
 | Markdown | 1 | All | Direct template rendering |
 | JSON | 1 | All | Raw Zod output |
 | Copy to Clipboard | 1 | All | `navigator.clipboard` |
-| Gherkin (.feature) | 2 | Test Cases | GROQ 8B reformatting |
-| CSV | 3 | Test Cases, UX Issues | `json2csv` library |
+| Gherkin (.feature) | 2 | Test Cases | Deterministic template (`toGherkin` in `src/lib/services/export.service.ts`), no model call |
+| CSV | 3 | Test Cases | Hand-written `toCsv` in `src/lib/services/export.service.ts` (the service handles `TestSuiteOutput` only; no UX-issue export) |
 | Jira | 3 | Test Cases, Bugs | API integration |
 | Linear | 3 | Test Cases, Bugs | API integration |
+
+**Implementation status:** Jira and Linear currently export as downloadable text only (Jira wiki markup `.txt`, Linear Markdown `.md`) from `src/lib/services/export.service.ts`; there is no Jira/Linear API or OAuth integration. The test-suite CSV is produced by a hand-written serializer in that file (`json2csv` is in `package.json` but not imported anywhere, verified 2026-11-08; decision pending: wire in or remove). OAuth vs API-key input for Jira/Linear remains an open decision.
 
 ---
 
@@ -394,7 +467,7 @@ When project context changes after assets were already analyzed:
 | Mode | Providers Used | Data Training | Default |
 |---|---|---|---|
 | Private | GROQ only | No training | ✅ Default |
-| Extended | GROQ + Google AI + Cerebras | Google may train on free-tier | Opt-in per project |
+| Extended | GROQ + Google AI (Gemini) | Google may train on free-tier | Opt-in per project |
 
 User toggle in project settings. Shown with clear disclosure:
 > "Extended mode enables Google AI as a fallback provider. Google's free tier may use your data for model training. Enable only if you're comfortable with this."

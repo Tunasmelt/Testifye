@@ -14,7 +14,9 @@ Never ask an agent to build more than one PHASES.md task per session. The moment
 
 ## Step 1 — The Session Opening Ritual (always do this)
 
-Before ANY coding message, paste this block at the top of every new session:
+Before ANY coding message, paste this block at the top of every **fresh** session (no `HANDOFF.md` context loaded yet):
+
+> Scope note: this ritual is for orienting a *fresh* session. It does not override `CLAUDE.md` RULE 1 / RULE 5 for reads *within* a task — once working, search first (`/ctx-search`) and read only the relevant section of ARCHITECTURE.md / SCHEMA.md / SCOPE.md rather than re-reading whole files. In a Claude Code session, `CLAUDE.md` is already loaded automatically; if you are resuming mid-task, use `/ctx-load` instead of the full ritual.
 
 ```
 You are developing "Tesifye" — an AI-native QA web platform.
@@ -92,7 +94,7 @@ This prompts the agent to write `HANDOFF.md` with:
 - Next steps
 - Gotchas discovered
 
-Then commit:
+Create a feature branch first — CLAUDE.md forbids committing directly to main/master (e.g. `git switch -c feat/task-1-x`). Then commit:
 ```bash
 git add .
 git commit -m "feat: Task 1.X — [task name]"
@@ -102,33 +104,37 @@ git commit -m "ctx: session handoff [date]"
 
 ---
 
-## The Full Task Sequence (Phase 1)
+## The Full Task Sequence
 
-Work through these in strict order. Do not skip:
+**`PHASES.md` is the canonical source for task numbers, names, head prompts and acceptance tests.** Do not rely on any copy of the list elsewhere. Work through tasks in strict order within a phase; do not skip.
 
-| # | Task | Prerequisite check |
-|---|---|---|
-| 1.1 | Project Scaffold | `npm run dev` works at localhost:3000 |
-| 1.2 | Design System | Dark bg (#07070A) loads, fonts load, glassmorphic cards visible |
-| 1.3 | Supabase Schema | All tables exist in Supabase dashboard, trigger fires on test insert |
-| 1.4 | Auth Pages | Sign up creates a user in Supabase auth |
-| 1.5 | Auth Middleware | `/dashboard` redirects to `/login` when signed out |
-| 1.6 | Project CRUD + App Shell | All 10 sidebar items visible, breadcrumb updates |
-| 1.7 | Image Upload | Upload a PNG, check IDB cache, check Supabase Storage |
-| 1.8 | AI Providers | `MODEL_REGISTRY` accessible, no import errors |
-| 1.9 | Context Budget | `buildContext()` returns ≤14K token estimate |
-| 1.10 | Scout Stage | Upload screenshot → `vision_map` artifact in generated_artifacts |
-| 1.11 | Generator Stage | Click "Generate" → streaming cards appear one by one |
-| 1.12 | Judge Stage | After streaming → `is_verified: true` badge on cards |
-| 1.13 | Rate Limit Queue | `rate-limit.store.ts` exists, Zustand provider in app |
-| 1.14 | Fallback Chain | 429 from GROQ → falls back without crashing |
-| 1.15 | Export Engine Page | Export sidebar nav item → 6 format cards + toggle switches |
-| 1.16 | Generation Store | Partial recovery banner appears after simulated stream error |
-| 1.17 | Manifest Snapshot | Generate test cases → `manifest_snapshot` JSON has updated `test_suite` key |
-| 1.18 | Trigger Validation | Run SQL test from SCHEMA.md — trigger fires, manifest updates |
-| 1.19 | Landing Page | All 11 sections render, CountUp animates, pricing page exists |
-| 1.20 | Sidekick v0 | Chat message → streaming response, typing indicator shows |
-| 1.21 | TweaksPanel | 3 themes change appearance, choice persists on refresh |
+Phase 1 task headings, as of 2026-11-08 (generated from `PHASES.md` headings `## Task 1.x`; if they differ from PHASES.md, PHASES.md wins):
+
+| # | Task (PHASES.md heading) |
+|---|---|
+| 1.1 | Project Scaffold |
+| 1.2 | Design System |
+| 1.3 | Supabase Setup |
+| 1.4 | Auth Flow |
+| 1.5 | Image Pipeline |
+| 1.6 | Project CRUD + App Shell |
+| 1.7 | Provider Registry |
+| 1.8 | Scout Pipeline |
+| 1.9 | Generator Pipeline |
+| 1.10 | Judge Pipeline |
+| 1.11 | Context Budget |
+| 1.12 | System Prompts |
+| 1.13 | Test Case UI |
+| 1.14 | Partial Stream Recovery |
+| 1.15 | Export Engine Page |
+| 1.16 | Rate Limit Queue |
+| 1.17 | Landing Page |
+| 1.18 | Manifest Trigger |
+| 1.19 | Landing Page (full mockup) |
+| 1.20 | Sidekick Chat (v1 Session) |
+| 1.21 | TweaksPanel (Theme Switcher) |
+
+For Phases 2+ see the `## Task N.x` headings in `PHASES.md`. Acceptance tests live in each task's head prompt there.
 
 ---
 
@@ -175,10 +181,10 @@ Class names must use the .tf-* prefix system from ARCHITECTURE.md.
 
 ## Agent-Specific Tips
 
-### Using Gemini CLI (this tool)
-- You're already in the right place — this tool has access to the filesystem
+### Using a filesystem-capable CLI agent (e.g. Gemini CLI)
+- Any agent with filesystem access works; the steps below are tool-neutral
 - For each task, start a new conversation and paste the opening ritual + head prompt
-- Use `/ctx-search` to find symbols before reading files
+- Use `/ctx-search` to find symbols before reading files (where the tool supports the command grid)
 
 ### Using Claude Code (VS Code / terminal)
 - Claude Code natively reads CLAUDE.md at session start — it will see the command grid
@@ -200,7 +206,9 @@ Class names must use the .tf-* prefix system from ARCHITECTURE.md.
 
 ## Testing Strategy Per Task
 
-Each task should produce tests alongside the feature code. Use this rule:
+> **Status (2026-11-08):** `vitest` (v3) is installed as a devDependency with a `test` script and `vitest.config.ts`. Run unit tests with `npm test`. First tests: `src/lib/services/launch-readiness.service.test.ts` (pure scoring function). Other modules still have no tests, so the table below is a target for new work, not a description of current coverage.
+
+Each task should produce tests alongside the feature code:
 
 | File created | Test to write |
 |---|---|
@@ -226,8 +234,8 @@ Before marking any task done, check:
 - [ ] `npx tsc --noEmit` passes with 0 errors
 - [ ] `npm run lint` passes
 - [ ] Every acceptance test bullet passes manually
-- [ ] Relevant test file written alongside new service/schema files
-- [ ] No hardcoded color hex values (must use CSS custom properties)
+- [ ] Relevant test file written alongside new service/schema files (vitest approved 2026-11-08; run `npm test` — see Testing Strategy)
+- [ ] No hardcoded color hex values (must use CSS custom properties) — **one deliberate exception:** CSS variables cannot have an alpha suffix appended (e.g. `var(--error)` + `'18'` is invalid). Severity/status color maps that need alpha tints (suffixes seen in code: `'12'|'18'|'22'|'30'|'40'|'44'`) therefore use hex literals, e.g. in `PersonaFrictionClient`, `TestDataClient`, `LaunchReadinessClient`, `I18nAuditClient`, `GapAnalysisClient` (also `BugReportsClient`, `UXAuditClient`). Use hex only for such alpha-suffix maps; everything else uses `var(--*)` tokens.
 - [ ] No direct AI SDK imports outside `src/lib/ai/`
 - [ ] No Tailwind classes
 - [ ] ctx-dump run and HANDOFF.md updated

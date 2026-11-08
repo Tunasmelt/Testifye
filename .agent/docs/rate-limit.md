@@ -1,64 +1,60 @@
 # Rate Limit & Provider Fallback
-Last updated: 2026-05-09
+Last updated: 2026-11-08
 
 ## Overview
-Tesifye uses a client-side Zustand rate limit queue + server-side multi-provider fallback. Primary: GROQ (~200ms). Fallback 1: Google AI Studio (~800ms). Fallback 2: Cerebras (text-only, 1M tokens/day). All managed by `generate-with-fallback.ts` / `stream-with-fallback.ts`.
+Server-side fallback is GROQ → Google AI Studio (Gemini), and only when a 429 / rate-limit error occurs AND the project has `extended_providers_enabled`. Decision 2026-11-08: **Cerebras is dropped** and will not be used; Gemini is the only fallback provider (no SDK or code references to Cerebras exist). A client-side Zustand queue exists but is not wired to anything.
 
 ## Key files
-- `src/lib/ai/generate-with-fallback.ts` — tries providers in order, catches 429
-- `src/lib/ai/stream-with-fallback.ts` — streaming variant
-- `src/lib/ai/providers.ts` — MODEL_REGISTRY, FEATURE_MODEL_MAP, FALLBACK_CHAINS
-- `src/stores/rate-limit.store.ts` — client-side queue, cooldowns, token budgets
+- `src/lib/ai/generate-with-fallback.ts` — `generateWithFallback(modelKey, {schema, prompt|messages, system, temperature=0.3, allowGoogleFallback=false})` → `{ result, provider: 'groq'|'google', model, modelKey }`
+- `src/lib/ai/stream-with-fallback.ts` — `streamWithFallback(modelKey, {...})` → `{ stream, provider, model, estimatedTokens: 0 }` (real token estimate comes from `buildFullContext`, not this function)
+- `src/lib/ai/providers.ts` — `MODEL_REGISTRY`, `FEATURE_MODEL_MAP`, `FALLBACK_CHAINS`, `getModel(key, useGoogle)`
+- `src/lib/stores/rate-limit.store.ts` — client queue store (NOT `src/stores/…`); currently unused by any component or hook
+- `src/app/dashboard/[projectId]/OverviewClient.tsx` + `src/app/api/projects/[projectId]/settings/route.ts` — the “extended providers” privacy toggle (`extended_providers_enabled`)
 
-## Provider fallback chain
+## Actual fallback behavior
 ```
-Request
-  → GROQ (primary, ~200ms)
-      ├─ 200 OK → return result, badge: "✦ Powered by GROQ"
-      └─ 429 Rate Limited
-            ├─ Vision task? → Google AI Studio (gemini-2.5-flash, ~800ms)
-            │                    ├─ 200 OK → badge: "✦ Powered by Google AI"
-            │                    └─ Fail → queue for retry with countdown
-            └─ Text-only task? → Cerebras (when SDK available)
-                                  └─ Or Google AI as universal fallback
+groq (MODEL_REGISTRY[key])
+  └─ error is 429 / "rate limit" / "too many requests"?
+        ├─ allowGoogleFallback false → throw (surfaces as error / 502)
+        └─ true → google gemini-2.0-flash (ALL six model keys map to this one model)
+  non-429 error → throw immediately
 ```
+Streaming variant only probes the first chunk for a 429 when `allowGoogleFallback` is true; otherwise errors surface when the stream is consumed.
 
-## Queue priority order (highest to lowest)
-1. User-triggered generation (e.g. clicking "Generate")
-2. Judge verification (internal, runs after streaming)
-3. Shadow Scout (background, Phase 2 — runs after upload)
-4. Manifest cache updates (lowest — background only)
+## Model registry (Groq)
+| Key | Model |
+|---|---|
+| vision_scout | meta-llama/llama-4-scout-17b-16e-instruct |
+| reasoning_large | llama-3.3-70b-versatile |
+| ux_narrative | meta-llama/llama-4-maverick-17b-128e-instruct |
+| long_context | mixtral-8x7b-32768 |
+| fast_format | llama-3.1-8b-instant |
+| quick_labels | gemma2-9b-it |
 
-## Privacy controls (per project)
-| Mode | Providers | Training risk |
-|---|---|---|
-| Private (default) | GROQ only | None |
-| Extended (opt-in) | GROQ + Google AI + Cerebras | Google may train on free-tier data |
+Google equivalent for every key: `gemini-2.0-flash` (not gemini-2.5-flash).
 
-- Stored in `projects.extended_providers_enabled`
-- `generate-with-fallback.ts` checks this flag before trying Google/Cerebras
-- User sees explicit disclosure modal when enabling Extended mode
+## FALLBACK_CHAINS (providers.ts)
+`vision [vision_scout, null]`, `reasoning [reasoning_large, null]`, `ux_review [ux_narrative, reasoning_large]`, `fast [fast_format, null]`, `long [long_context, reasoning_large]`. These are model-key pairs, NOT provider chains, and **nothing in `src/` references `FALLBACK_CHAINS`** — it is dead config. Real fallback is the provider swap above.
 
-## FALLBACK_CHAINS (from providers.ts)
-```
-vision:     groq:llama-4-scout → google:gemini-2.5-flash
-reasoning:  groq:llama-3.3-70b → google:gemini-2.5-flash
-ux_review:  groq:llama-4-maverick → google:gemini-2.5-flash
-fast:       groq:llama-3.1-8b → google:gemini-2.5-flash
-```
+## Privacy controls
+| Mode | Behavior |
+|---|---|
+| Private (default, `extended_providers_enabled = false`) | Groq only; 429 → error |
+| Extended (opt-in) | Groq, then Google on 429 |
+- Flag read per route (`allowGoogleFallback: project.extended_providers_enabled ?? false`).
+- Judge: `test-cases/route.ts` now passes `project.extended_providers_enabled ?? false` to `runJudge`, so Private mode no longer falls back to Google (fixed; type-checked, no automated test). Remaining exceptions to review: `api/generate/chat/route.ts` calls `getModel('reasoning_large', false)` directly (Groq only, no fallback, no 429 handling); `buildCompressedHistory` uses `getModel('fast_format')` directly. Flag for a human decision.
 
-## When all providers exhausted
-- Show countdown timer in UI: "Retrying in 47s..."
-- Serve cached artifact if available with stale badge
-- Log which providers were tried and their error codes
+## NOT implemented (do not document as shipped)
+- “All providers exhausted → countdown timer + serve cached artifact with stale badge.” Today an exhausted/failed call returns an error (SSE `error` event or HTTP 502). Test-case streams can be recovered via Resume/Keep Partial only.
+- Queue priority ordering (user generation > Judge > Shadow Scout > manifest updates) and the “Rate limited — queued” badge: the store has no priority concept and is unused.
+- A `ProviderBadge` component (only the CSS class `.tf-provider-badge` exists); the UI shows provider/model from the SSE `meta` event instead.
 
 ## Gotchas
-- `generate-with-fallback` returns `{ result, provider, model }` — always store `provider` and `model` in the generated_artifacts row
-- Cerebras fallback is text-only — NEVER route vision tasks (Scout) to Cerebras
-- GROQ free tier resets every minute; Google AI Studio resets daily
-- The ProviderBadge component reads from rate-limit.store `activeProvider` — update it on every successful call
+- Always persist `provider` and `model` from the fallback result into `generated_artifacts`.
+- Shadow Scout (`runScout`, run in `after()` on upload) uses `generateWithFallback('vision_scout', …)` with the project's flag.
+- Groq free tier resets per minute; Google AI Studio daily. (external; unverified)
 
 ## Do not
-- Retry on 4xx errors other than 429 (auth errors, bad requests won't fix themselves)
-- Import `@ai-sdk/groq` or `@ai-sdk/google` outside `src/lib/ai/`
-- Use `extended_providers_enabled` from `projects` without first reading the privacy disclosure to the user
+- Retry on non-429 errors.
+- Import `@ai-sdk/groq` / `@ai-sdk/google` outside `src/lib/ai/`.
+- Enable Google fallback without the project's opt-in flag.

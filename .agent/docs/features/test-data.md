@@ -1,50 +1,43 @@
 # Feature 7: Synthetic Test Data Generator
-Phase: 3 | Pipeline: Generator with fast_format model
+Phase: 3 (Task 3.4) | Status: done | Pipeline: single non-streaming Generator (`fast_format`)
+Last updated: 2026-11-08
 
-## What it does
-Generates realistic, structured test data based on project context. Uses `@faker-js/faker` as the factory for locale-aware values + GROQ for intelligent field mapping from ScreenElementMaps.
+## Overview
+Generates scenario-based test data (valid / boundary / invalid / edge_case) for the form fields found in the project's screen maps. One POST, one JSON response — no SSE.
+
+**Implementation status: faker not wired; generation is model-only.** `@faker-js/faker` is in `package.json` but is not imported anywhere (verified 2026-11-08: referenced only in `package.json`; decision pending: wire in or remove). The old “Faker factory” design (field type → `faker.*`) and CSV download are NOT implemented.
 
 ## Key files
-- `src/app/api/generate/test-data/route.ts`
-- `src/lib/schemas/test-data.ts` — TestDataOutputSchema (see SCHEMA.md)
-- `src/components/features/TestDataPage.tsx`
-- `src/components/generation/TestDataTable.tsx` — tabular output with copy/download
+- `src/app/dashboard/[projectId]/test-data/page.tsx`
+- `src/app/dashboard/[projectId]/test-data/TestDataClient.tsx` — description + dataset-count inputs, category filter, per-scenario copy-to-clipboard
+- `src/app/api/generate/test-data/route.ts` — POST; persists artifact inline
+- `src/lib/ai/weaver.service.ts` — `generateTestData` (uses `generateWithFallback`)
+- `src/lib/ai/prompts/test-data.ts` — system prompt + `buildTestDataPrompt`
+- `src/lib/schemas/test-data.ts` — `TestDataOutputSchema`
 
-## Inputs
-| Input | Required |
-|---|---|
-| Form fields from ScreenElementMaps | Yes (auto-detected from screenshots) |
-| Data count (rows) | No (default: 10) |
-| Locale | No (default: en-US) |
-| Edge case ratio | No (default: 20% edge case rows) |
+## Request / response
+- Body: `{ projectId, projectDescription?, datasetCount? }`; count clamped to 1–20 (default 5). Description falls back to project description, then name.
+- Response: `{ data: TestDataOutput, provider, model }`; AI failure → 502. Artifact saved as `test_data`, `is_verified: false`.
 
-## How it works
-1. **Field mapping:** GROQ identifies form fields from ScreenElementMaps (email, phone, date, etc.)
-2. **Faker factory:** Maps AI field types → Faker.js generators:
-   ```
-   email → faker.internet.email()
-   phone → faker.phone.number()
-   name  → faker.person.fullName()
-   date  → faker.date.recent()
-   price → faker.commerce.price()
-   ```
-3. **Edge case injection:** 20% of rows include boundary values (empty strings, very long text, special chars, SQL injection patterns, Unicode)
-
-## Output format
-JSON array of objects + downloadable as CSV:
-```json
-[
-  { "email": "user@example.com", "name": "Jane Smith", "age": 28 },
-  { "email": "", "name": "A".repeat(256), "age": -1 }  ← edge case row
-]
+## Output (src/lib/schemas/test-data.ts)
 ```
-
-## Dependencies
-```bash
-npm install @faker-js/faker
+scenarios[]: { scenario_id (DS-001…), name, category: valid|boundary|invalid|edge_case,
+               description, expected_outcome,
+               fields[]: { field_name, field_type: text|email|password|phone|number|date|select|boolean|file,
+                           value, notes? } }
+total_count, coverage_summary, fields_identified[]
 ```
+Not a row/column table; no locale or edge-case-ratio inputs.
 
 ## Gotchas
-- `fast_format` model (llama-3.1-8b) is used — fast but less accurate field detection
-- If no screenshots available, prompt user to describe form fields manually
-- Edge case rows must be visually marked in the table (different row background)
+- `fast_format` (llama-3.1-8b-instant) — fast but weaker field detection.
+- UI counts `scenarios.length`, not the model-reported `total_count` (can differ).
+- Screen maps are optional input (route does not 422 without them); the description drives the prompt.
+- Category colors in the client use hex literals with alpha suffixes (`+ '22'`) — see design-system.md exception.
+- Route holds persistence logic (longer than the thin-route guideline).
+
+## Planned
+- Wire faker for deterministic values, locale support, CSV/JSON download (Task 3.5 export covers test cases only today).
+
+## Do not
+- Do not document faker behavior as shipped.

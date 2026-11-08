@@ -28,9 +28,9 @@ handoff:     HANDOFF.md
 ```
 
 ## Stack
-- Next.js 15 (App Router) + TypeScript 5
+- Next.js 16.2.6 (App Router; decision 2026-11-08) + TypeScript 5
 - Supabase (Auth + Postgres + Storage)
-- Vercel AI SDK · GROQ (primary) · Google AI Studio · Cerebras (fallbacks)
+- Vercel AI SDK · GROQ (primary) · Google AI Studio / Gemini (fallback, Extended mode only)
 - Zustand · TanStack React Query
 - Vanilla CSS (glassmorphic design system, no Tailwind)
 
@@ -58,7 +58,8 @@ Read only the file relevant to your current task.
 - [x] No Tailwind CSS — vanilla CSS only, using custom properties from app.css
 - [x] No standalone backend — all server logic in Next.js Route Handlers
 - [x] Email/password auth in Phase 1, Google OAuth prepared but inactive
-- [x] Multi-provider fallback: GROQ → Google AI Studio → Cerebras
+- [x] Provider fallback: GROQ (primary) → Google AI Studio / Gemini (fallback, only when the project opted into Extended mode). Cerebras dropped 2026-11-08 — will not be used.
+- [x] Target framework version is Next.js 16.2.6 (decision 2026-11-08)
 - [x] Images compressed to ≤150KB WebP, cached in IndexedDB, promoted on save
 - [x] Streaming-first: streamObject for user-facing, generateObject for internal
 - [x] Accent color is #8B5CF6 (NOT #7C3AED — old value)

@@ -1,72 +1,60 @@
 # Feature 1: Test Case Generator
-Phase: 1 | Pipeline: Scout → Generator → Judge
+Phase: 1 (Tasks 1.8–1.14) | Status: done | Pipeline: Scout (at upload) → streaming Generator → Judge (post-stream)
+Last updated: 2026-11-08
 
-## What it does
-Generates structured test suites from project context + screenshots. Role-aware: output language and step depth adapt to the user's selected role (Manual Tester → detailed steps; QA Lead → summary; Automation Engineer → Gherkin-ready structure).
+## Overview
+Generates structured test suites from project context + analyzed screens. Role-aware (Tester role selector in the UI is sent as `role` and overrides `project.user_role` for that call): Manual Tester → detailed steps; QA Lead → summary; Automation Engineer → Gherkin-ready structure.
 
 ## Key files
-- `src/app/api/generate/test-cases/route.ts` — Route handler (thin)
-- `src/lib/ai/weaver.service.ts` — orchestrates the 3 stages
-- `src/lib/schemas/test-suite.ts` — TestSuiteOutputSchema (source of truth: SCHEMA.md)
-- `src/components/features/TestCasePage.tsx` — feature page with focus area filter
-- `src/components/generation/TestCaseCard.tsx` — streaming card
-- `src/components/generation/TestCaseList.tsx` — filterable list with filter row
-- `src/lib/services/export.service.ts` — Copy as Markdown / Download JSON
+- `src/app/dashboard/[projectId]/test-cases/page.tsx` + `TestCasesClient.tsx` — page, role/focus selectors, export dropdown, resume/keep banner
+- `src/app/api/generate/test-cases/route.ts` — SSE route; also runs Judge and persists the artifact
+- `src/lib/ai/weaver.service.ts` — `streamTestCases`, `runJudge`, `getProjectScreenMaps`, `getProjectArtifacts`
+- `src/lib/hooks/useStreamTestCases.ts` — SSE client hook
+- `src/lib/stores/generation.store.ts` — status/cases/streaming/partial/resumeFrom (see state-management.md)
+- `src/lib/schemas/test-case.ts` — `TestCaseSchema`, `TestSuiteOutputSchema` (NOT test-suite.ts)
+- `src/components/test-cases/TestCaseList.tsx`, `TestCaseRow.tsx` — list with category chips, search, priority sort
+- `src/components/test-cases/CoverageGapAnalysis.tsx` — Task 3.8 coverage view
+- `src/lib/services/export.service.ts` — markdown / csv / json / gherkin / jira / linear text export
+- (No `src/components/features/` or `src/components/generation/` files exist; those folders are empty.)
 
-## Inputs (from SCHEMA.md)
-| Input | DB source | Required |
+## Request / SSE
+- Body: `{ projectId, focusAreas?, resumeFrom?, role? }`. Events: `meta` → `partial` (repeated) → `done` | `error`.
+- No screenshots is allowed (generates from description, `noScreensWarning`); route does not 422.
+
+## Inputs
+| Input | Source | Required |
 |---|---|---|
-| description, scope, target_audience | projects table | Yes |
-| user_role, app_type | projects table | Yes |
-| Screenshots (ScreenElementMaps) | project_assets | No (generates from description only if missing) |
-| focus_areas | Multi-select UI (local state only, not persisted) | No (defaults to all) |
-| Previous test suite | generated_artifacts (is_latest=TRUE) | Auto-included in context |
+| description, scope, audience, app_type | projects row | Yes |
+| role | UI selector (default `manual_tester`) | Yes |
+| screen maps | `getProjectScreenMaps` | No |
+| focus_areas | chips, local state only | No (none = all) |
+| previous artifacts | `getProjectArtifacts` | auto |
 
-## Focus area chips
-```
-Authentication & Login | Payments & Checkout | Navigation & Routing
-User Input / Forms     | Search & Filtering  | Onboarding
-Data Validation        | Error Handling      | Performance
-Accessibility          | Security            | Edge Cases
-```
-- No selection → default to all
-- >5 selected → warn user, split into parallel sub-calls
+Focus chips (8): Authentication, Payments, Forms, Search, Errors, Accessibility, Performance, Navigation. UI shows a warning style/hint above 5 selected; it does NOT split into parallel sub-calls.
 
-## Output fields (from SCHEMA.md TestCaseSchema)
-- `tc_id` — TC-001, TC-002, ...
-- `title` — human-readable
-- `category` — matches focus area
-- `priority` — critical | high | medium | low (lowercase)
-- `preconditions` — string[]
-- `steps` — `{ step_number, action, expected_result }[]`
-- `test_data_suggestion` — string
-- `ui_elements_referenced` — from ScreenElementMap labels
-- `step_count` — derived field
-- `screen_label` — which screen this test applies to
-- `is_verified` — boolean, set by Judge
+## Output (src/lib/schemas/test-case.ts)
+- `TestCase`: `tc_id`, `title`, `category` (free string), `priority` critical|high|medium|low, `preconditions` (**string**, not array), `steps[] {step_number, action, expected_result}`, `step_count`, `screen_label`, `test_data_suggestion?`, `ui_elements_referenced[]`, `is_verified`, `verification_note?`
+- `TestSuiteOutput`: `test_cases[]`, `coverage_summary`, `total_count`, `priority_breakdown {critical, high, medium, low}`
 
-## Streaming UI behavior
-1. Skeleton cards appear immediately (N = estimatedTotal from header)
-2. Each completed test case card fades in via `.tf-fade-in`
-3. Progress: "Generating 7 of ~15 test cases..."
-4. Judge runs after stream completes → verified badge appears per card
-5. Auto-saved to generated_artifacts on complete
+## Streaming UI
+1. Status flows `starting → streaming → judging → complete` (or `partial` / `error`).
+2. Cards stream in from `partial.test_cases`; skeleton rows while streaming.
+3. Judge runs after the stream; failure is non-fatal (raw output kept).
+4. Artifact saved to `generated_artifacts` (`artifact_type: 'test_suite'`, previous flipped `is_latest:false`).
 
 ## Edge cases
 | Scenario | Handling |
 |---|---|
-| No screenshots | Generate from text only; warn: "Test cases may reference assumed UI elements" |
-| 0 focus areas | Default to all — do not block |
-| >5 focus areas | Warn, split into parallel model calls |
-| Duplicate (same inputs, same assets) | Serve cached artifact; show "Cached result" badge |
-| Rate limit mid-stream | Save partial; show "Resume / Keep Partial" banner |
-| All providers exhausted | Countdown timer; serve cached if available |
-| Levenshtein near-duplicate cases | Flag with warning icon; user can dismiss or delete |
+| No screenshots | Generate from text; warning note |
+| 0 focus areas | All areas |
+| Rate limit / disconnect mid-stream | Partial kept; “Resume / Keep Partial” banner (`resumeFrom`) |
+| Judge fails | Raw generation returned |
+| Cached duplicate result, Levenshtein/Jaccard near-duplicate flags, countdown when all providers exhausted | NOT implemented |
 
-## Post-processing
-- Levenshtein / Jaccard similarity check for semantically duplicate test cases (run client-side after full stream)
-- Group by category, sort by priority within groups
+## Export
+- Export dropdown in `TestCasesClient`: Gherkin (.feature), Markdown, CSV, JSON. Jira/Linear are text formats on the Export page (no API push). See export.md.
 
-## Export (Phase 1: MD + JSON; Phase 2: Gherkin)
-- Inline "Copy as Markdown" + "Download JSON" in filter row
-- Gherkin: Phase 2 — uses fast_format model, outputs `.feature` file
+## Gotchas
+- Artifact `is_verified` now reflects whether the Judge succeeded (`false` when the Judge failed and raw generator output was saved). The Judge honors `project.extended_providers_enabled` (no Google fallback in Private mode). Fixed; type-checked, no automated test. Per-case `is_verified` is still set by the Judge.
+- List category chips are `functional|edge|negative|accessibility|performance` and match by substring on the free-text `category`.
+- Route handler is ~160 lines (Judge + persistence inline), beyond the thin-route guideline.
